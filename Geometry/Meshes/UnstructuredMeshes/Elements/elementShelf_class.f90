@@ -1,13 +1,13 @@
 module elementShelf_class
   
-  use edgeShelf_class,   only : edgeShelf
-  use element_inter,     only : element, elementBox
-  use face_inter,        only : faceBox
-  use faceShelf_class,   only : faceShelf
+  use edgeShelf_class,         only : edgeShelf
+  use element_inter,           only : element, elementBox
+  use face_inter,              only : faceBox
+  use faceShelf_class,         only : faceShelf
   use numPrecision
-  use polyhedron_class,  only : polyhedron
-  use tetrahedron_class, only : tetrahedron
-  use vertexShelf_class, only : vertexShelf
+  use polyhedron_class,        only : polyhedron
+  use tetrahedron_class,       only : tetrahedron
+  use vertexShelf_class,       only : vertexShelf
   
   implicit none
   private
@@ -29,6 +29,7 @@ module elementShelf_class
     procedure                                   :: allocateElement
     procedure                                   :: allocateShelf
     procedure                                   :: buildElement
+    procedure                                   :: buildElementNotches
     procedure                                   :: computeFaceIntersection
     procedure                                   :: computePotentialFaceIdxs
     procedure                                   :: getElementCentroid
@@ -42,6 +43,7 @@ module elementShelf_class
     procedure                                   :: getSize
     procedure                                   :: initElement
     procedure                                   :: kill
+    procedure                                   :: splitConcave
     procedure                                   :: splitElement
     procedure                                   :: testForInclusion
   end type elementShelf
@@ -149,7 +151,7 @@ contains
   !!
   !!
   !!
-  pure subroutine buildElement(self, idx, parentIdx, faceIdxs, vertexIdxs, faces, vertices, type)
+  subroutine buildElement(self, idx, parentIdx, faceIdxs, vertexIdxs, faces, vertices, type)
     class(elementShelf), intent(inout)          :: self
     integer(shortInt), intent(in)               :: idx, parentIdx
     integer(shortInt), dimension(:), intent(in) :: faceIdxs, vertexIdxs
@@ -162,6 +164,20 @@ contains
     call self % shelf(idx) % item % build(idx, parentIdx, faceIdxs, vertexIdxs, faces, vertices, type)
 
   end subroutine buildElement
+
+  !!
+  !!
+  !!
+  subroutine buildElementNotches(self, idx, edges, faces, vertices)
+    class(elementShelf), intent(inout)          :: self
+    integer(shortInt), intent(in)               :: idx
+    type(edgeShelf), intent(in)                 :: edges
+    type(faceShelf), intent(in)                 :: faces
+    type(vertexShelf), intent(in)               :: vertices
+
+    call self % shelf(idx) % item % buildNotches(edges, faces, vertices)
+
+  end subroutine buildElementNotches
 
   !! Subroutine 'computeFaceIntersection'
   !!
@@ -427,6 +443,21 @@ contains
     end if
 
   end subroutine kill
+
+  !!
+  !!
+  !!
+  subroutine splitConcave(self, idx, edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
+    class(elementShelf), intent(inout)            :: self
+    integer(shortInt), intent(in)                 :: idx
+    type(edgeShelf), intent(inout)                :: edges, newEdges
+    type(faceShelf), intent(inout)                :: faces, newFaces
+    type(vertexShelf), intent(inout)              :: vertices, newVertices
+    type(elementBox), dimension(:), intent(inout) :: convexElements
+
+    call self % shelf(idx) % item % splitConcave(edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
+
+  end subroutine splitConcave
 
   !! Subroutine 'splitElement'
   !!

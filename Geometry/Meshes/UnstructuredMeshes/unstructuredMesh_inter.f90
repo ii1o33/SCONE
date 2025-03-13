@@ -8,7 +8,7 @@ module unstructuredMesh_inter
   use elementShelf_class,  only : elementShelf
   use face_inter,          only : faceBox
   use faceShelf_class,     only : faceShelf
-  use genericProcedures,   only : append, findDifferent, numToChar
+  use genericProcedures,   only : append, fatalError, findDifferent, numToChar
   use mesh_inter,          only : mesh, kill_super => kill
   use numPrecision
   use universalVariables
@@ -72,6 +72,7 @@ module unstructuredMesh_inter
     procedure                           :: setFaceShelf
     procedure                           :: setVertexShelf
     procedure                           :: split
+    procedure                           :: splitConcaveElements
     procedure                           :: splitElements
     procedure                           :: splitFaces
     ! Runtime procedures.
@@ -94,15 +95,17 @@ module unstructuredMesh_inter
     !!   d [out]        -> Distance to the next intersected face.
     !!   coords [inout] -> Particle's coordinates.
     !!
-    subroutine importMesh(self, folderPath, centroids, edges, elements, elementZones, faces, vertices)
-      import                                 :: unstructuredMesh, cellZoneShelf, edgeShelf, elementShelf, faceShelf, vertexShelf
-      class(unstructuredMesh), intent(inout) :: self
-      character(*), intent(in)               :: folderPath
-      type(edgeShelf), intent(out)           :: edges
-      type(elementShelf), intent(out)        :: elements
-      type(cellZoneShelf), intent(out)       :: elementZones
-      type(faceShelf), intent(out)           :: faces
-      type(vertexShelf), intent(out)         :: centroids, vertices
+    subroutine importMesh(self, folderPath, centroids, edges, elements, elementZones, faces, vertices, concaveElementIdxs)
+      import                                                    :: unstructuredMesh, cellZoneShelf, edgeShelf, &
+                                                                   elementShelf, faceShelf, shortInt, vertexShelf
+      class(unstructuredMesh), intent(inout)                    :: self
+      character(*), intent(in)                                  :: folderPath
+      type(edgeShelf), intent(out)                              :: edges
+      type(elementShelf), intent(out)                           :: elements
+      type(cellZoneShelf), intent(out)                          :: elementZones
+      type(faceShelf), intent(out)                              :: faces
+      type(vertexShelf), intent(out)                            :: centroids, vertices
+      integer(shortInt), dimension(:), allocatable, intent(out) :: concaveElementIdxs
 
     end subroutine importMesh
 
@@ -570,21 +573,33 @@ contains
   !!
   !!
   subroutine init(self, folderPath, dict)
-    class(unstructuredMesh), intent(inout) :: self
-    character(*), intent(in)               :: folderPath
-    class(dictionary), intent(in)          :: dict
-    type(edgeShelf)                        :: edges, newEdges
-    type(elementShelf)                     :: elements, newElements
-    type(cellZoneShelf)                    :: elementZones
-    type(faceShelf)                        :: faces, newFaces
-    type(vertexShelf)                      :: centroids, newCentroids, newVertices, vertices
-    logical(defBool)                       :: triangulate
+    class(unstructuredMesh), intent(inout)       :: self
+    character(*), intent(in)                     :: folderPath
+    class(dictionary), intent(in)                :: dict
+    type(edgeShelf)                              :: edges, newEdges
+    type(elementShelf)                           :: elements, newElements
+    type(cellZoneShelf)                          :: elementZones
+    type(faceShelf)                              :: faces, newFaces
+    type(vertexShelf)                            :: centroids, newCentroids, newVertices, vertices
+    integer(shortInt), dimension(:), allocatable :: concaveElementIdxs
+    integer(shortInt)                            :: i, nConcaveElements
+    logical(defBool)                             :: triangulate
+    character(*), parameter                      :: Here = 'init (unstructuredMesh_inter.f90)'
 
     ! Set up base components.
     call self % setupBase(dict)
     
     ! Import mesh from files.
-    call self % importMesh(folderPath, centroids, edges, elements, elementZones, faces, vertices)
+    call self % importMesh(folderPath, centroids, edges, elements, elementZones, faces, vertices, concaveElementIdxs)
+
+    ! Check if any elements are concave.
+    nConcaveElements = size(concaveElementIdxs)
+    if (nConcaveElements > 0) then 
+      call self % splitConcaveElements(concaveElementIdxs, edges, elements, faces, vertices, &
+                                       newCentroids, newEdges, newElements, newFaces, newVertices)
+      call fatalError(Here, 'Temporary error message.')
+      
+    end if
 
     ! Check if triangulation was requested.
     call dict % getOrDefault(triangulate, 'triangulate', .false.)
@@ -855,6 +870,33 @@ contains
     self % nVertices = nVertices + nNewVertices
 
   end subroutine split
+
+  !!
+  !!
+  !!
+  subroutine splitConcaveElements(self, concaveElementIdxs, edges, elements, faces, vertices, newCentroids, &
+                                  newEdges, newElements, newFaces, newVertices)
+    class(unstructuredMesh), intent(in)         :: self
+    integer(shortInt), dimension(:), intent(in) :: concaveElementIdxs
+    type(edgeShelf), intent(inout)              :: edges, newEdges
+    type(elementShelf), intent(inout)           :: elements, newElements
+    type(faceShelf), intent(inout)              :: faces, newFaces
+    type(vertexShelf), intent(inout)            :: vertices, newCentroids, newVertices
+    integer(shortInt)                           :: i
+    type(elementBox), dimension(:), allocatable :: convexElements
+
+    ! Loop through all concave elements.
+    do i = 1, size(concaveElementIdxs)
+      ! Build all concave notches in current concave element.
+      call elements % buildElementNotches(concaveElementIdxs(i), edges, faces, vertices)
+
+      ! Now split current element.
+      call elements % splitConcave(concaveElementIdxs(i), edges, faces, vertices, newEdges, convexElements, &
+                                   newFaces, newVertices)
+
+    end do
+
+  end subroutine splitConcaveElements
 
   !! Subroutine 'splitElements'
   !!

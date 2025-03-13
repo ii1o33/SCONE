@@ -15,6 +15,11 @@ module element_inter
 
   ! Extendable procedures.
   public :: kill
+
+  type :: notch
+    integer(shortInt)               :: edgeIdx
+    integer(shortInt), dimension(2) :: faceIdxs
+  end type notch
   
   !!
   !! Element (cell) of an OpenFOAM mesh. Consists of a list of vertices and faces indices, as well
@@ -30,11 +35,12 @@ module element_inter
   type, public, abstract                         :: element
     private
     integer(shortInt)                            :: idx = 0, parentIdx = 0
-    integer(shortInt), dimension(:), allocatable :: edgeIdxs, faceIdxs, vertexIdxs, tetrahedronIdxs
+    integer(shortInt), dimension(:), allocatable :: edgeIdxs, faceIdxs, vertexIdxs, tetrahedronIdxs, concaveFaceIdxs
     real(defReal)                                :: volume = ZERO
     real(defReal), dimension(3)                  :: centroid = ZERO
     logical(defBool)                             :: isConvex = .false.
     character(:), allocatable                    :: type
+    type(notch), dimension(:), allocatable       :: notches
   contains
     ! Build procedures.
     procedure, non_overridable                   :: addEdgeIdx
@@ -46,7 +52,9 @@ module element_inter
     procedure, non_overridable                   :: init
     procedure, non_overridable                   :: setIdx
     procedure(split), deferred                   :: split
+    procedure, non_overridable                   :: splitConcave
     ! Runtime procedures.
+    procedure, non_overridable                   :: buildNotches
     procedure, non_overridable                   :: computeIntersectedFace
     procedure, non_overridable                   :: computePotentialFaces
     procedure, non_overridable                   :: getCentroid
@@ -159,7 +167,7 @@ contains
   !!
   !!
   !!
-  pure subroutine build(self, idx, parentIdx, faceIdxs, vertexIdxs, faces, vertices, type)
+  subroutine build(self, idx, parentIdx, faceIdxs, vertexIdxs, faces, vertices, type)
     class(element), intent(inout)               :: self
     integer(shortInt), intent(in)               :: idx, parentIdx
     integer(shortInt), dimension(:), intent(in) :: faceIdxs, vertexIdxs
@@ -170,7 +178,9 @@ contains
     real(defReal), dimension(3)                 :: centroid
     real(defReal)                               :: volume
 
-    call self % computeComponents(faceIdxs, vertexIdxs, faces, vertices, centroid, volume)
+    ! Initialise volume = ZERO and centroid = ZERO
+    volume = ZERO
+    centroid = ZERO
 
     if (type == 'Tetrahedron') then
       isConvex = .true.
@@ -180,10 +190,63 @@ contains
 
     end if
 
+    if (isConvex) call self % computeComponents(faceIdxs, vertexIdxs, faces, vertices, centroid, volume)
+
     ! Initialise element.
     call self % init(idx, parentIdx, faceIdxs, vertexIdxs, centroid, volume, isConvex, type)
 
   end subroutine build
+
+  !!
+  !!
+  subroutine buildNotches(self, edges, faces, vertices)
+    class(element), intent(inout)                  :: self
+    type(edgeShelf), intent(in)                    :: edges
+    type(faceShelf), intent(in)                    :: faces
+    type(vertexShelf), intent(in)                  :: vertices
+    integer(shortInt)                              :: i, j, k, faceIdx, absFaceIdx, vertexIdx, nNotches
+    integer(shortInt), dimension(:), allocatable   :: faceVertexIdxs, edgeIdxs, edgeFaceIdxs, currentElementFaceIdxs, &
+                                                      commonFaceIdxs
+    real(defReal), dimension(3)                    :: normal, faceVertexCoords
+    type(notch), dimension(:), allocatable         :: tempNotches
+    integer(shortInt), dimension(2)                :: edgeVertexIdxs
+    
+    ! Initialise nNotches = 0
+    nNotches = 0
+    
+    edgeIdxs = self % getEdgeIdxs()
+
+    do i = 1, size(edgeIdxs)
+        edgeFaceIdxs = edges % getEdgeFaceIdxs(edgeIdxs(i))
+        if (allocated(currentElementFaceIdxs)) deallocate(currentElementFaceIdxs)
+        do j = 1, size(edgeFaceIdxs)
+            if (.not. any(abs(self % getFaceIdxs()) == edgeFaceIdxs(j))) cycle
+            call append(currentElementFaceIdxs, edgeFaceIdxs(j))
+
+        end do
+
+        commonFaceIdxs = findCommon(currentElementFaceIdxs, self % concaveFaceIdxs)
+        if (size(commonFaceIdxs) == 2) then
+            nNotches = nNotches + 1
+            if (nNotches == 1) then
+              allocate(self % notches(nNotches))
+
+            else
+              tempNotches = self % notches
+              if (allocated(self % notches)) deallocate(self % notches)
+              allocate(self % notches(nNotches))
+              self % notches(1:nNotches - 1) = tempNotches
+
+            end if
+            self % notches(nNotches) % edgeIdx = edgeIdxs(i)
+            self % notches(nNotches) % faceIdxs = commonFaceIdxs
+
+        end if
+        if (allocated(tempNotches)) deallocate(tempNotches)
+
+    end do
+
+  end subroutine buildNotches
 
   !! Function 'isConvex'
   !!
@@ -205,8 +268,8 @@ contains
   !! Result:
   !!   isIt          -> .true. if the element is convex.
   !!
-  pure function computeConvexity(self, faceIdxs, vertexIdxs, faces, vertices) result(isConvex)
-    class(element), intent(in)                   :: self
+  function computeConvexity(self, faceIdxs, vertexIdxs, faces, vertices) result(isConvex)
+    class(element), intent(inout)                :: self
     integer(shortInt), dimension(:), intent(in)  :: faceIdxs, vertexIdxs
     type(faceShelf), intent(in)                  :: faces
     type(vertexShelf), intent(in)                :: vertices
@@ -214,9 +277,6 @@ contains
     integer(shortInt)                            :: i, j, k, faceIdx, absFaceIdx, vertexIdx
     integer(shortInt), dimension(:), allocatable :: faceVertexIdxs
     real(defReal), dimension(3)                  :: normal, faceVertexCoords
-
-    ! Initialise isIt = .false.
-    isConvex = .false.
     
     ! Now loop through all the faces in the element.
     do i = 1, size(faceIdxs)
@@ -237,7 +297,10 @@ contains
           
           ! Assemble the test vector and check if normal .dot. testVector > ZERO. If yes, the element
           ! is concave and we can return early.
-          if (dot_product(normal, vertices % getVertexCoordinates(vertexIdx) - faceVertexCoords) > ZERO) return
+          if (dot_product(normal, vertices % getVertexCoordinates(vertexIdx) - faceVertexCoords) > ZERO) then
+            call append(self % concaveFaceIdxs, absFaceIdx)
+
+          end if
 
         end do
 
@@ -246,7 +309,13 @@ contains
     end do
     
     ! If reached this point the element is convex. Update isIt = .true.
-    isConvex = .true.
+    if (allocated(self % concaveFaceIdxs)) then
+      isConvex = .false.
+
+    else
+      isConvex = .true.
+
+    end if
 
   end function computeConvexity
 
@@ -523,6 +592,8 @@ contains
     if (allocated(self % faceIdxs)) deallocate(self % faceIdxs)
     if (allocated(self % tetrahedronIdxs)) deallocate(self % tetrahedronIdxs)
     if (allocated(self % type)) deallocate(self % type)
+    if (allocated(self % concaveFaceIdxs)) deallocate(self % concaveFaceIdxs)
+    if (allocated(self % notches)) deallocate(self % notches)
 
   end subroutine kill
   
@@ -541,6 +612,41 @@ contains
     self % idx = idx
 
   end subroutine setIdx
+
+  !!
+  !!
+  !!
+  subroutine splitConcave(self, edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
+    class(element), intent(inout)                 :: self
+    type(edgeShelf), intent(inout)                :: edges, newEdges
+    type(faceShelf), intent(inout)                :: faces, newFaces
+    type(vertexShelf), intent(inout)              :: vertices, newVertices
+    type(elementBox), dimension(:), intent(inout) :: convexElements
+    integer(shortInt)                             :: i, j
+    integer(shortInt), dimension(2)               :: edgeVertexIdxs, faceIdxs
+    real(defReal), dimension(3)                   :: u, v, normalDifference
+
+    ! Loop through all notches.
+    do i = 1, size(self % notches)
+      ! Step 1: retrieve first direction vector from the edge of the current notch.
+      edgeVertexIdxs = edges % getEdgeVertexIdxs(self % notches(i) % edgeIdx)
+      u = vertices % getVertexCoordinates(edgeVertexIdxs(2)) - vertices % getVertexCoordinates(edgeVertexIdxs(1))
+      u = u / norm2(u)
+
+      print *, 'u:'
+      print *, u
+      
+      ! Step 2: retrieve normal vectors for each face in the current notch.
+      faceIdxs = self % notches(i) % faceIdxs
+      normalDifference = faces % getFaceNormal(faceIdxs(2)) - faces % getFaceNormal(faceIdxs(1))
+      normalDifference = normalDifference / norm2(normalDifference)
+
+      print *, 'Normal vectors difference:'
+      print *, normalDifference
+
+    end do
+
+  end subroutine splitConcave
   
   !! Subroutine 'testForInclusion'
   !!

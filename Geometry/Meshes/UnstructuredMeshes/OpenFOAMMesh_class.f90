@@ -319,7 +319,8 @@ contains
   !! Errors:
   !!   - fatalError if the mesh contains concave elements.
   !!
-  subroutine importMesh(self, folderPath, centroids, edges, elements, elementZones, faces, vertices)
+  subroutine importMesh(self, folderPath, centroids, edges, elements, elementZones, faces, vertices, &
+    concaveElementIdxs)
     class(OpenFOAMMesh), intent(inout) :: self
     character(*), intent(in)           :: folderPath
     type(edgeShelf), intent(out)       :: edges
@@ -327,7 +328,7 @@ contains
     type(cellZoneShelf), intent(out)   :: elementZones
     type(faceShelf), intent(out)       :: faces
     type(vertexShelf), intent(out)     :: centroids, vertices
-    integer(shortInt)                  :: nConcaveElements
+    integer(shortInt), dimension(:), allocatable, intent(out) :: concaveElementIdxs
     character(*), parameter            :: Here = 'importMesh (OpenFOAMMesh_class.f90)'
     
     ! Retrieve preliminary information about the mesh and allocate memory.
@@ -345,10 +346,7 @@ contains
     call self % initFaceShelf(faces, vertices, folderPath)
     
     ! Import elements.
-    call self % initElementShelf(centroids, elements, faces, vertices, folderPath, nConcaveElements)
-
-    ! If there are concave elements in the mesh call fatalError.
-    if (nConcaveElements > 0) call fatalError(Here, numToChar(nConcaveElements)//' elements failed convexity test.')
+    call self % initElementShelf(centroids, elements, faces, vertices, folderPath, concaveElementIdxs)
 
     ! Build edges from elements, faces and vertices.
     call self % buildEdges(edges, elements, faces, vertices)
@@ -380,13 +378,13 @@ contains
   !!   nFaces [in]         -> Number of faces in the mesh.
   !!   nInternalFaces [in] -> Number of internal faces in the mesh.
   !!
-  subroutine initElementShelf(self, centroids, elements, faces, vertices, folderPath, nConcaveElements)
+  subroutine initElementShelf(self, centroids, elements, faces, vertices, folderPath, concaveElementIdxs)
     class(OpenFOAMMesh), intent(inout)             :: self
     class(vertexShelf), intent(inout)              :: centroids, vertices
     class(elementShelf), intent(inout)             :: elements
     class(faceShelf), intent(inout)                :: faces
     character(*), intent(in)                       :: folderPath
-    integer(shortInt), intent(out)                 :: nConcaveElements
+    integer(shortInt), dimension(:), allocatable, intent(out) :: concaveElementIdxs
     integer(shortInt)                              :: i, j, elementIdx, vertexIdx
     integer(shortInt), parameter                   :: unit = 10
     integer(shortInt), dimension(:), allocatable   :: elementIdxs, vertexIdxs
@@ -394,8 +392,8 @@ contains
     type(elementInfo), dimension(self % nElements) :: elementInfos
     character(:), allocatable                      :: type
 
-    ! Initialise nConcaveElements = 0
-    nConcaveElements = 0
+    ! Allocate concaveElementIdxs to zero-size.
+    allocate(concaveElementIdxs(0))
 
     ! If there is only one element in the mesh simply add all the faces and vertices to this element, check convexity and return.
     if (self % nElements == 1) then
@@ -418,7 +416,7 @@ contains
       call elements % buildElement(1, 1, elementInfos(1) % faceIdxs, elementInfos(1) % vertexIdxs, faces, vertices, type)
       call centroids % initVertex(1, elements % getElementCentroid(1))
       call centroids % addElementIdxToVertex(1, 1)
-      if (.not. elements % getElementIsConvex(1)) nConcaveElements = 1
+      if (.not. elements % getElementIsConvex(1)) call append(concaveElementIdxs, 1)
       return
 
     end if
@@ -520,7 +518,7 @@ contains
       call elements % buildElement(i, i, elementInfos(i) % faceIdxs, elementInfos(i) % vertexIdxs, faces, vertices, type)
       call centroids % initVertex(i, elements % getElementCentroid(i))
       call centroids % addElementIdxToVertex(i, i)
-      if (.not. elements % getElementIsConvex(i)) nConcaveElements = nConcaveElements + 1
+      if (.not. elements % getElementIsConvex(i)) call append(concaveElementIdxs, i)
 
     end do
 
