@@ -25,7 +25,7 @@ geometry {
   	graph {type shrunk;}
 
   	surfaces {
-		boxContainer { id 1; type box; origin (0.0 0.0 0.0); halfwidth (115.0 115.0 115.0); }
+		boxContainer { id 1; type box; origin (0.0 0.0 0.0); halfwidth (3.0 3.0 3.0); }
   	}
 
 	cells {
@@ -33,7 +33,7 @@ geometry {
   	}
 
 	meshes { 
-		testMesh {id 1; type OpenFOAMMesh; path ./IntegrationTestFiles/Geometry/Meshes/OpenFOAM/StanfordBunny_LowPoly/;}
+		testMesh {id 1; type OpenFOAMMesh; path ./IntegrationTestFiles/Geometry/Meshes/OpenFOAM/ToyProblem/;}
 	}
 
 	universes {

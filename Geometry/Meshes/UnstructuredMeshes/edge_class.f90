@@ -18,17 +18,21 @@ module edge_class
   !!
   type, public                                   :: edge
     private
-    integer(shortInt)                            :: idx = 0
-    integer(shortInt), dimension(2)              :: vertexIdxs = 0
+    integer(shortInt)                            :: idx = 0, cutVertexIdx = 0
+    integer(shortInt), dimension(2)              :: vertexIdxs = 0, childrenIdxs = 0
     integer(shortInt), dimension(:), allocatable :: faceIdxs, elementIdxs
   contains
-    ! Build procedures.
+    ! Build procedures.#
+    procedure                                    :: addChildIdx
     procedure                                    :: addElementIdx
     procedure                                    :: addFaceIdx
     procedure                                    :: kill
+    procedure                                    :: setCutVertexIdx
     procedure                                    :: setIdx
     procedure                                    :: setVertexIdxs
     ! Runtime procedures.
+    procedure                                    :: getChildrenIdxs
+    procedure                                    :: getCutVertexIdx
     procedure                                    :: getElementIdxs
     procedure                                    :: getFaceIdxs
     procedure                                    :: getIdx
@@ -36,6 +40,22 @@ module edge_class
   end type edge
 
 contains
+
+  !! Subroutine 'addChildIdx'
+  !!
+  !! Basic description:
+  !!   Adds the index of a child edge to the edge.
+  !!
+  !! Arguments:
+  !!   idx [in] -> Index of the child edge.
+  !!
+  elemental subroutine addChildIdx(self, idx)
+    class(edge), intent(inout)    :: self
+    integer(shortInt), intent(in) :: idx
+
+    self % childrenIdxs(minloc(self % childrenIdxs)) = idx
+
+  end subroutine addChildIdx
 
   !! Subroutine 'addElementIdx'
   !!
@@ -68,6 +88,36 @@ contains
     call append(self % faceIdxs, idx)
 
   end subroutine addFaceIdx
+
+  !! Function 'getChildrenIdxs'
+  !!
+  !! Basic description:
+  !!   Returns the indices of the children edges of the edge.
+  !!
+  !! Result:
+  !!   childrenIdxs -> Indices of the children edges of the edge.
+  !!
+  pure function getChildrenIdxs(self) result(childrenIdxs)
+    class(edge), intent(in)         :: self
+    integer(shortInt), dimension(2) :: childrenIdxs
+
+    childrenIdxs = self % childrenIdxs
+
+  end function getChildrenIdxs
+
+  !! Function 'getCutVertexIdx'
+  !!
+  !! Basic description:
+  !!   Returns the index of the index used to cut the edge into children edges.
+  !!
+  !! Result:
+  !!   cutVertexIdx -> Index of the cut vertex.
+  !!
+  elemental function getCutVertexIdx(self) result(cutVertexIdx)
+    class(edge), intent(in) :: self
+    integer(shortInt)       :: cutVertexIdx
+
+  end function getCutVertexIdx
 
   !! Function 'getElementIdxs'
   !!
@@ -143,10 +193,27 @@ contains
 
     self % idx = 0
     self % vertexIdxs = 0
+    self % childrenIdxs = 0
     if (allocated(self % faceIdxs)) deallocate(self % faceIdxs)
     if (allocated(self % elementIdxs)) deallocate(self % elementIdxs)
 
   end subroutine kill
+
+  !! Subroutine 'setCutVertexIdx'
+  !!
+  !! Basic description:
+  !!   Sets the index of the vertex used to cut the edge into children edges.
+  !!
+  !! Arguments:
+  !!   idx [in] -> Index of the cut vertex.
+  !!
+  elemental subroutine setCutVertexIdx(self, idx)
+    class(edge), intent(inout)    :: self
+    integer(shortInt), intent(in) :: idx
+
+    self % cutVertexIdx = idx
+
+  end subroutine setCutVertexIdx
 
   !! Subroutine 'setIdx'
   !!

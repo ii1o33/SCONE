@@ -11,20 +11,40 @@ module edgeShelf_class
     private
     type(edge), dimension(:), allocatable :: shelf
   contains
+    procedure                             :: addChildIdxToEdge
     procedure                             :: addElementIdxToEdge
     procedure                             :: addFaceIdxToEdge
     procedure                             :: allocateShelf
     procedure                             :: collapseShelf
     procedure                             :: expandShelf
+    procedure                             :: getEdgeChildrenIdxs
+    procedure                             :: getEdgeCutVertexIdx
     procedure                             :: getEdgeElementIdxs
     procedure                             :: getEdgeFaceIdxs
     procedure                             :: getEdgeVertexIdxs
     procedure                             :: getSize
     procedure                             :: initEdge
     procedure                             :: kill
+    procedure                             :: setEdgeCutVertexIdx
   end type edgeShelf
 
 contains
+  !! Subroutine 'addChildIdxToEdge'
+  !!
+  !! Basic description:
+  !!   Adds the index of a child edge to an edge in the shelf.
+  !!
+  !! Arguments:
+  !!   idx [in]      -> Index of the edge in the shelf.
+  !!   childIdx [in] -> Index of the child edge.
+  !!
+  elemental subroutine addChildIdxToEdge(self, idx, childIdx)
+    class(edgeShelf), intent(inout) :: self
+    integer(shortInt), intent(in)   :: idx, childIdx
+
+    call self % shelf(idx) % addChildIdx(childIdx)
+
+  end subroutine addChildIdxToEdge
 
   !! Subroutine 'addElementIdxToEdge'
   !!
@@ -139,6 +159,44 @@ contains
 
   end subroutine expandShelf
 
+  !! Function 'getEdgeChildrenIdxs'
+  !!
+  !! Basic description:
+  !!   Returns the indices of the children edges of an edge in the shelf.
+  !!
+  !! Arguments:
+  !!   idx [in]     -> Index of the edge in the shelf.
+  !!
+  !! Result:
+  !!   childrenIdxs -> Indices of the children edges of the edge.
+  !!
+  pure function getEdgeChildrenIdxs(self, idx) result(childrenIdxs)
+    class(edgeShelf), intent(in)    :: self
+    integer(shortInt), intent(in)   :: idx
+    integer(shortInt), dimension(2) :: childrenIdxs
+
+    childrenIdxs = self % shelf(idx) % getChildrenIdxs()
+
+  end function getEdgeChildrenIdxs
+
+  !! Function 'getEdgeCutVertexIdx'
+  !!
+  !! Basic description:
+  !!   Returns the index of the vertex used to cut an edge in the shelf into children edges.
+  !!
+  !! Arguments:
+  !!   idx [in]     -> Index of the edge in the shelf.
+  !!
+  !! Result:
+  !!   cutVertexIdx -> Index of the cut vertex.
+  !!
+  elemental function getEdgeCutVertexIdx(self, idx) result(cutVertexIdx)
+    class(edgeShelf), intent(in)  :: self
+    integer(shortInt), intent(in) :: idx
+    integer(shortInt)             :: cutVertexIdx
+
+  end function getEdgeCutVertexIdx
+
   !! Function 'getEdgeElementIdxs'
   !!
   !! Basic description:
@@ -245,5 +303,22 @@ contains
     if (allocated(self % shelf)) deallocate(self % shelf)
 
   end subroutine kill
+
+  !! Subroutine 'setEdgeCutVertexIdx'
+  !!
+  !! Basic description:
+  !!   Sets the index of the vertex used to cut an edge in the shelf into children edges.
+  !!
+  !! Arguments:
+  !!   idx [in]          -> Index of the edge in the shelf.
+  !!   cutVertexIdx [in] -> Index of the cut vertex.
+  !!
+  elemental subroutine setEdgeCutVertexIdx(self, idx, cutVertexIdx)
+    class(edgeShelf), intent(inout) :: self
+    integer(shortInt), intent(in)   :: idx, cutVertexIdx
+
+    call self % shelf(idx) % setCutVertexIdx(cutVertexIdx)
+
+  end subroutine setEdgeCutVertexIdx
   
 end module edgeShelf_class

@@ -882,9 +882,37 @@ contains
     type(elementShelf), intent(inout)           :: elements, newElements
     type(faceShelf), intent(inout)              :: faces, newFaces
     type(vertexShelf), intent(inout)            :: vertices, newCentroids, newVertices
-    integer(shortInt)                           :: i
+    integer(shortInt)                           :: i, j, nEdges, nVertices
+    integer(shortInt), dimension(:), allocatable :: edgeIdxs
     type(elementBox), dimension(:), allocatable :: convexElements
 
+    ! Retrieve sizes of the original shelves.
+    nEdges = self % nEdges
+    nVertices = self % nVertices
+    
+    ! Allocate memory in the new shelves.
+    call newEdges % allocateShelf(nEdges)
+    call newVertices % allocateShelf(nVertices)
+
+    ! Copy original edges and vertices into the new shelves.
+    do i = 1, nEdges
+      call newEdges % initEdge(i, edges % getEdgeVertexIdxs(i))
+
+    end do
+
+    call newVertices % setExtremalCoordinates(vertices % getExtremalCoordinates())
+    call newVertices % setOffset(vertices % getOffset())
+    do i = 1, nVertices
+      call newVertices % initVertex(i, vertices % getVertexCoordinates(i))
+      edgeIdxs = vertices % getVertexEdgeIdxs(i)
+
+      do j = 1, size(edgeIdxs)
+        call newVertices % addEdgeIdxToVertex(i, edgeIdxs(j))
+
+      end do
+
+    end do
+    
     ! Loop through all concave elements.
     do i = 1, size(concaveElementIdxs)
       ! Build all concave notches in current concave element.

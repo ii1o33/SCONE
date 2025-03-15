@@ -90,7 +90,7 @@ geometry {
 nuclearData {
 
   handles {
-     ce { type aceNeutronDatabase; aceLibrary $SCONE_ACE;}
+     ce { type aceNeutronDatabase; aceLibrary /home/daeyeun/MPhil_project/fullLib.xsfile ;}
   }
 
 
