@@ -35,6 +35,7 @@ module tetrahedron_class
     procedure                    :: kill
     procedure                    :: setElement
     procedure                    :: split
+    procedure                    :: splitConcave
   end type tetrahedron
 
 contains
@@ -177,5 +178,19 @@ contains
                                                      'Tetrahedron', edgeIdxs)
   
   end subroutine split
+
+  !!
+  !!
+  !!
+  subroutine splitConcave(self, edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
+    class(tetrahedron), intent(inout)                        :: self
+    type(edgeShelf), intent(inout)                           :: edges, newEdges
+    type(faceShelf), intent(inout)                           :: faces, newFaces
+    type(vertexShelf), intent(inout)                         :: vertices, newVertices
+    type(elementBox), dimension(:), allocatable, intent(out) :: convexElements
+    
+    ! Do nothing.
+
+  end subroutine splitConcave
   
 end module tetrahedron_class

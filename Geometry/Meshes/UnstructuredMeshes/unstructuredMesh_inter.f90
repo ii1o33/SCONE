@@ -597,20 +597,13 @@ contains
     if (nConcaveElements > 0) then 
       call self % splitConcaveElements(concaveElementIdxs, edges, elements, faces, vertices, &
                                        newCentroids, newEdges, newElements, newFaces, newVertices)
-      call fatalError(Here, 'Temporary error message.')
       
-    end if
-
-    ! Check if triangulation was requested.
-    call dict % getOrDefault(triangulate, 'triangulate', .false.)
-    if (triangulate) then
-      call self % split(edges, elements, faces, vertices, newCentroids, newEdges, newElements, newFaces, newVertices)
       call self % setCentroidShelf(newCentroids)
       call self % setEdgeShelf(newEdges)
       call self % setElementShelf(newElements)
       call self % setFaceShelf(newFaces)
       call self % setVertexShelf(newVertices)
-
+      
     else
       call self % setCentroidShelf(centroids)
       call self % setEdgeShelf(edges)
@@ -619,6 +612,25 @@ contains
       call self % setVertexShelf(vertices)
 
     end if
+
+    ! Check if triangulation was requested.
+    !call dict % getOrDefault(triangulate, 'triangulate', .false.)
+    !if (triangulate) then
+    !  call self % split(edges, elements, faces, vertices, newCentroids, newEdges, newElements, newFaces, newVertices)
+    !  call self % setCentroidShelf(newCentroids)
+    !  call self % setEdgeShelf(newEdges)
+    !  call self % setElementShelf(newElements)
+    !  call self % setFaceShelf(newFaces)
+    !  call self % setVertexShelf(newVertices)
+
+    !else
+    !  call self % setCentroidShelf(centroids)
+    !  call self % setEdgeShelf(edges)
+    !  call self % setElementShelf(elements)
+    !  call self % setFaceShelf(faces)
+    !  call self % setVertexShelf(vertices)
+
+    !end if
 
     ! Set elements zones and initialise kd-tree for the mesh.
     call self % setElementZones(elementZones)
@@ -876,40 +888,33 @@ contains
   !!
   subroutine splitConcaveElements(self, concaveElementIdxs, edges, elements, faces, vertices, newCentroids, &
                                   newEdges, newElements, newFaces, newVertices)
-    class(unstructuredMesh), intent(in)         :: self
-    integer(shortInt), dimension(:), intent(in) :: concaveElementIdxs
-    type(edgeShelf), intent(inout)              :: edges, newEdges
-    type(elementShelf), intent(inout)           :: elements, newElements
-    type(faceShelf), intent(inout)              :: faces, newFaces
-    type(vertexShelf), intent(inout)            :: vertices, newCentroids, newVertices
-    integer(shortInt)                           :: i, j, nEdges, nVertices
+    class(unstructuredMesh), intent(inout)       :: self
+    integer(shortInt), dimension(:), intent(in)  :: concaveElementIdxs
+    type(edgeShelf), intent(inout)               :: edges, newEdges
+    type(elementShelf), intent(inout)            :: elements, newElements
+    type(faceShelf), intent(inout)               :: faces, newFaces
+    type(vertexShelf), intent(inout)             :: vertices, newCentroids, newVertices
+    integer(shortInt)                            :: i, j, nEdges, nElements, nFaces, nVertices
     integer(shortInt), dimension(:), allocatable :: edgeIdxs
-    type(elementBox), dimension(:), allocatable :: convexElements
+    type(elementBox), dimension(:), allocatable  :: convexElements
 
     ! Retrieve sizes of the original shelves.
     nEdges = self % nEdges
+    nElements = self % nElements
+    nFaces = self % nFaces
     nVertices = self % nVertices
     
     ! Allocate memory in the new shelves.
     call newEdges % allocateShelf(nEdges)
+    call newFaces % allocateShelf(nFaces)
     call newVertices % allocateShelf(nVertices)
 
-    ! Copy original edges and vertices into the new shelves.
-    do i = 1, nEdges
-      call newEdges % initEdge(i, edges % getEdgeVertexIdxs(i))
-
-    end do
+    ! Copy vertices into the new vertexShelf.
 
     call newVertices % setExtremalCoordinates(vertices % getExtremalCoordinates())
     call newVertices % setOffset(vertices % getOffset())
     do i = 1, nVertices
       call newVertices % initVertex(i, vertices % getVertexCoordinates(i))
-      edgeIdxs = vertices % getVertexEdgeIdxs(i)
-
-      do j = 1, size(edgeIdxs)
-        call newVertices % addEdgeIdxToVertex(i, edgeIdxs(j))
-
-      end do
 
     end do
     
@@ -921,8 +926,23 @@ contains
       ! Now split current element.
       call elements % splitConcave(concaveElementIdxs(i), edges, faces, vertices, newEdges, convexElements, &
                                    newFaces, newVertices)
+      
+      ! Add the split elements to the new elementShelf.
+      do j = 1, size(convexElements)
+        call newCentroids % expandShelf(1)
+        call newElements % expandShelf(1)
+        call newCentroids % initVertex(j, convexElements(j) % item % getCentroid())
+        call newElements % addElement(j, convexElements(j))
+
+      end do
 
     end do
+
+    self % nEdges = newEdges % getSize()
+    self % nElements = newElements % getSize()
+    self % nFaces = newFaces % getSize()
+    self % nInternalFaces = 1
+    self % nVertices = newVertices % getSize()
 
   end subroutine splitConcaveElements
 

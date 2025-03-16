@@ -29,8 +29,11 @@ module faceShelf_class
     procedure                                :: allocateShelf
     procedure                                :: buildFace
     procedure                                :: computeFaceIntersection
+    procedure                                :: expandShelf
     procedure                                :: findCommonEdgeIdx
     procedure                                :: findCommonVertexIdx
+    procedure                                :: getFaceAB
+    procedure                                :: getFaceAC
     procedure                                :: getFaceArea
     procedure                                :: getFaceCentroid
     procedure                                :: getFaceEdgeIdxs
@@ -195,6 +198,39 @@ contains
 
   end subroutine computeFaceIntersection
 
+  !! Subroutine 'expandShelf'
+  !!
+  !! Basic description:
+  !!   Expands the shelf by a specified number of additional faces. Copies elements
+  !!   already present. Allocates the shelf if it is not allocated yet.
+  !!
+  !! Arguments:
+  !!   nAdditionalFaces [in] -> Number of additional faces to be included in the shelf.
+  !!
+  elemental subroutine expandShelf(self, nAdditionalFaces)
+    class(faceShelf), intent(inout)          :: self
+    integer(shortInt), intent(in)            :: nAdditionalFaces
+    integer(shortInt)                        :: nFaces
+    type(faceBox), dimension(:), allocatable :: shelf
+
+    if (allocated(self % shelf)) then
+      ! If shelf is already allocated, compute the number of edges in the shelf to be expanded
+      ! and copy elements already present.
+      nFaces = size(self % shelf)
+      shelf = self % shelf
+      
+      ! Deallocate shelf and reallocate to new size then copy original elements.
+      deallocate(self % shelf)
+      allocate(self % shelf(nFaces + nAdditionalFaces))
+      self % shelf(1:nFaces) = shelf
+
+    else
+      allocate(self % shelf(nAdditionalFaces))
+
+    end if
+
+  end subroutine expandShelf
+
   !! Function 'findCommonEdgeIdx'
   !!
   !! Basic description:
@@ -252,6 +288,46 @@ contains
     if (size(commonIdxs) > 0) vertexIdx = commonIdxs(1)
 
   end function findCommonVertexIdx
+
+  !! Function 'getFaceAB'
+  !!
+  !! Basic description:
+  !!   Returns the first edge vector of a face in the shelf.
+  !!
+  !! Arguments:
+  !!   idx [in] -> Index of the face in the shelf.
+  !!
+  !! Results:
+  !!   AB       -> First edge vector of the face in the shelf.
+  !!
+  pure function getFaceAB(self, idx) result(AB)
+    class(faceShelf), intent(in)  :: self
+    integer(shortInt), intent(in) :: idx
+    real(defReal), dimension(3)   :: AB
+
+    AB = self % shelf(idx) % item % getAB()
+
+  end function getFaceAB
+
+  !! Function 'getFaceAC'
+  !!
+  !! Basic description:
+  !!   Returns the second edge vector of a face in the shelf.
+  !!
+  !! Arguments:
+  !!   idx [in] -> Index of the face in the shelf.
+  !!
+  !! Results:
+  !!   AC       -> Second edge vector of the face in the shelf.
+  !!
+  pure function getFaceAC(self, idx) result(AC)
+    class(faceShelf), intent(in)  :: self
+    integer(shortInt), intent(in) :: idx
+    real(defReal), dimension(3)   :: AC
+
+    AC = self % shelf(idx) % item % getAC()
+
+  end function getFaceAC
 
   !! Function 'getFaceArea'
   !!
@@ -465,7 +541,8 @@ contains
     class(faceShelf), intent(in) :: self
     integer(shortInt)            :: nFaces
     
-    nFaces = size(self % shelf)
+    nFaces = 0
+    if (allocated(self % shelf)) nFaces = size(self % shelf)
     
   end function getSize
 
@@ -478,18 +555,19 @@ contains
   !!   idx [in]            -> Index of the face.
   !!   nInternalFaces [in] -> Number of internal faces in the shelf.
   !!
-  subroutine initFace(self, idx, faceIdx, isBoundary, vertexIdxs, AB, AC, centroid, normal, area, type)
-    class(faceShelf), intent(inout)             :: self
-    integer(shortInt), intent(in)               :: idx, faceIdx
-    logical(defBool), intent(in)                :: isBoundary
-    integer(shortInt), dimension(:), intent(in) :: vertexIdxs
-    real(defReal), dimension(3), intent(in)     :: AB, AC, centroid, normal
-    real(defReal), intent(in)                   :: area
-    character(*), intent(in)                    :: type
+  subroutine initFace(self, idx, faceIdx, isBoundary, vertexIdxs, AB, AC, centroid, normal, area, type, edgeIdxs)
+    class(faceShelf), intent(inout)                       :: self
+    integer(shortInt), intent(in)                         :: idx, faceIdx
+    logical(defBool), intent(in)                          :: isBoundary
+    integer(shortInt), dimension(:), intent(in)           :: vertexIdxs
+    real(defReal), dimension(3), intent(in)               :: AB, AC, centroid, normal
+    real(defReal), intent(in)                             :: area
+    character(*), intent(in)                              :: type
+    integer(shortInt), dimension(:), intent(in), optional :: edgeIdxs
 
     ! Allocate face in the shelf and set everything.
     call self % allocateFace(idx, type)
-    call self % shelf(idx) % item % init(idx, faceIdx, isBoundary, area, centroid, normal, AB, AC, vertexIdxs, type)
+    call self % shelf(idx) % item % init(idx, faceIdx, isBoundary, area, centroid, normal, AB, AC, vertexIdxs, type, edgeIdxs)
 
   end subroutine initFace
   

@@ -19,8 +19,8 @@ module edge_class
   type, public                                   :: edge
     private
     integer(shortInt)                            :: idx = 0, cutVertexIdx = 0
-    integer(shortInt), dimension(2)              :: vertexIdxs = 0, childrenIdxs = 0
-    integer(shortInt), dimension(:), allocatable :: faceIdxs, elementIdxs
+    integer(shortInt), dimension(2)              :: vertexIdxs = 0
+    integer(shortInt), dimension(:), allocatable :: childrenIdxs, faceIdxs, elementIdxs
   contains
     ! Build procedures.#
     procedure                                    :: addChildIdx
@@ -53,7 +53,7 @@ contains
     class(edge), intent(inout)    :: self
     integer(shortInt), intent(in) :: idx
 
-    self % childrenIdxs(minloc(self % childrenIdxs)) = idx
+    call append(self % childrenIdxs, idx)
 
   end subroutine addChildIdx
 
@@ -98,8 +98,8 @@ contains
   !!   childrenIdxs -> Indices of the children edges of the edge.
   !!
   pure function getChildrenIdxs(self) result(childrenIdxs)
-    class(edge), intent(in)         :: self
-    integer(shortInt), dimension(2) :: childrenIdxs
+    class(edge), intent(in)                      :: self
+    integer(shortInt), dimension(:), allocatable :: childrenIdxs
 
     childrenIdxs = self % childrenIdxs
 
@@ -116,6 +116,8 @@ contains
   elemental function getCutVertexIdx(self) result(cutVertexIdx)
     class(edge), intent(in) :: self
     integer(shortInt)       :: cutVertexIdx
+
+    cutVertexIdx = self % cutVertexIdx
 
   end function getCutVertexIdx
 
@@ -193,7 +195,8 @@ contains
 
     self % idx = 0
     self % vertexIdxs = 0
-    self % childrenIdxs = 0
+    self % cutVertexIdx = 0
+    if (allocated(self % childrenIdxs)) deallocate(self % childrenIdxs)
     if (allocated(self % faceIdxs)) deallocate(self % faceIdxs)
     if (allocated(self % elementIdxs)) deallocate(self % elementIdxs)
 

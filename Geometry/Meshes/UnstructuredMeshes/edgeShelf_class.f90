@@ -171,9 +171,9 @@ contains
   !!   childrenIdxs -> Indices of the children edges of the edge.
   !!
   pure function getEdgeChildrenIdxs(self, idx) result(childrenIdxs)
-    class(edgeShelf), intent(in)    :: self
-    integer(shortInt), intent(in)   :: idx
-    integer(shortInt), dimension(2) :: childrenIdxs
+    class(edgeShelf), intent(in)                 :: self
+    integer(shortInt), intent(in)                :: idx
+    integer(shortInt), dimension(:), allocatable :: childrenIdxs
 
     childrenIdxs = self % shelf(idx) % getChildrenIdxs()
 
@@ -194,6 +194,8 @@ contains
     class(edgeShelf), intent(in)  :: self
     integer(shortInt), intent(in) :: idx
     integer(shortInt)             :: cutVertexIdx
+
+    cutVertexIdx = self % shelf(idx) % getCutVertexIdx()
 
   end function getEdgeCutVertexIdx
 

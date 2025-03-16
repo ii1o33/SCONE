@@ -15,11 +15,6 @@ module element_inter
 
   ! Extendable procedures.
   public :: kill
-
-  type :: notch
-    integer(shortInt)               :: edgeIdx
-    integer(shortInt), dimension(2) :: faceIdxs
-  end type notch
   
   !!
   !! Element (cell) of an OpenFOAM mesh. Consists of a list of vertices and faces indices, as well
@@ -52,7 +47,7 @@ module element_inter
     procedure, non_overridable                   :: init
     procedure, non_overridable                   :: setIdx
     procedure(split), deferred                   :: split
-    procedure, non_overridable                   :: splitConcave
+    procedure(splitConcave), deferred            :: splitConcave
     ! Runtime procedures.
     procedure, non_overridable                   :: buildNotches
     procedure, non_overridable                   :: computeIntersectedFace
@@ -62,6 +57,7 @@ module element_inter
     procedure, non_overridable                   :: getFaceIdxs
     procedure, non_overridable                   :: getIdx
     procedure, non_overridable                   :: getIsConvex
+    procedure, non_overridable                   :: getNotches
     procedure, non_overridable                   :: getParentIdx
     procedure, non_overridable                   :: getType
     procedure, non_overridable                   :: getVertexIdxs
@@ -69,6 +65,14 @@ module element_inter
     procedure                                    :: kill
     procedure, non_overridable                   :: testForInclusion
   end type element
+
+  !!
+  !!
+  !!
+  type, public :: notch
+    integer(shortInt)               :: edgeIdx
+    integer(shortInt), dimension(2) :: faceIdxs
+  end type notch
 
   !!
   !! Small, local container to store polymorphic elements in a single array.
@@ -97,6 +101,9 @@ module element_inter
 
     end subroutine computeComponents
 
+    !!
+    !!
+    !!
     subroutine split(self, faces, lastNewEdgeIdx, lastNewElementIdx, lastNewFaceIdx, lastNewVertexIdx, &
                      newEdges, newFaces, newVertices, tetrahedra, triangles)
       import                                        :: element, edgeShelf, faceShelf, vertexShelf, shortInt, elementBox, &
@@ -110,6 +117,19 @@ module element_inter
       type(faceBox), dimension(:), intent(inout)    :: triangles
 
     end subroutine split
+
+    !!
+    !!
+    !!
+    subroutine splitConcave(self, edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
+      import                                                   :: element, edgeShelf, faceShelf, vertexShelf, elementBox
+      class(element), intent(inout)                            :: self
+      type(edgeShelf), intent(inout)                           :: edges, newEdges
+      type(faceShelf), intent(inout)                           :: faces, newFaces
+      type(vertexShelf), intent(inout)                         :: vertices, newVertices
+      type(elementBox), dimension(:), allocatable, intent(out) :: convexElements
+
+    end subroutine splitConcave
 
   end interface
 
@@ -308,7 +328,7 @@ contains
           ! Assemble the test vector and check if normal .dot. testVector > ZERO. If yes, the element
           ! is concave. Continue this test to find all the problematic faces in the element.
           if (dot_product(normal, vertices % getVertexCoordinates(vertexIdx) - faceVertexCoords) > ZERO) then
-            call append(self % concaveFaceIdxs, absFaceIdx)
+            call append(self % concaveFaceIdxs, absFaceIdx, .true.)
 
           end if
 
@@ -319,13 +339,7 @@ contains
     end do
     
     ! If reached this point the element is convex. Update isIt = .true.
-    if (allocated(self % concaveFaceIdxs)) then
-      isConvex = .false.
-
-    else
-      isConvex = .true.
-
-    end if
+    isConvex = .not. allocated(self % concaveFaceIdxs)
 
   end function computeConvexity
 
@@ -499,6 +513,23 @@ contains
 
   end function getIsConvex
 
+  !!
+  !!
+  !!
+  pure function getNotches(self) result(notches)
+    class(element), intent(in)             :: self
+    type(notch), dimension(:), allocatable :: notches
+
+    if (allocated(self % notches)) then
+      notches = self % notches
+
+    else
+      allocate(notches(0))
+
+    end if
+
+  end function getNotches
+
   !! Function 'getParentIdx'
   !!
   !! Basic description:
@@ -623,284 +654,6 @@ contains
 
   end subroutine setIdx
 
-  !!
-  !!
-  !!
-  subroutine splitConcave(self, edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
-    class(element), intent(inout)                 :: self
-    type(edgeShelf), intent(inout)                :: edges, newEdges
-    type(faceShelf), intent(inout)                :: faces, newFaces
-    type(vertexShelf), intent(inout)              :: vertices, newVertices
-    type(elementBox), dimension(:), intent(inout) :: convexElements
-    integer(shortInt)                             :: i, j, k, l, edgeIdx, nEdges, nVertices, commonFaceIdx, &
-                                                     firstVertexIdx, cutVertexIdx, idx, previousIdx, &
-                                                     minPositiveIdx, minNegativeIdx
-    integer(shortInt), dimension(2)               :: edgeVertexIdxs, faceIdxs, verticesEdge, newEdgeVertexIdxs, &
-                                                     edgeFaceIdxs, childEdgeIdxs
-    real(defReal), dimension(3)                   :: u, v, normalDifference, CoorVertexNotch, coord1, coord2, &
-                                                     newVertexCoords
-    real(defReal)                                 :: t, denominator, const, newEdgeLength, testLength, dotProduct, &
-                                                     currentVertexDotProduct
-    integer(shortInt), dimension(:), allocatable  :: edgeIdxs, edgeFaceA, edgeFaceB, newVertexIdxs, faceToSplitIdxs, &
-                                                     faceVertexIdxs, newFaceVertexIdxs, minPositiveIdxs, minNegativeIdxs
-    real(defReal), dimension(:), allocatable      :: intersectXcoord, intersectYcoord, intersectZcoord, dotProducts
-    
-    ! Initialise nEdges and nVertices.
-    nEdges = newEdges % getSize()
-    nVertices = newVertices % getSize()
-
-    ! Allocate newVertexIdxs to zero-size.
-    allocate(newVertexIdxs(0))
-    allocate(faceToSplitIdxs(0))
-
-    ! Loop through all notches.
-    do i = 1, size(self % notches)
-      !Deallocate intersection points for each nortch
-      if (allocated(intersectXcoord)) deallocate(intersectXcoord)
-      if (allocated(intersectYcoord)) deallocate(intersectYcoord)
-      if (allocated(intersectZcoord)) deallocate(intersectZcoord)
-
-      ! Step 1: retrieve first direction vector from the edge of the current notch.
-      edgeVertexIdxs = edges % getEdgeVertexIdxs(self % notches(i) % edgeIdx)
-      u = vertices % getVertexCoordinates(edgeVertexIdxs(2)) - vertices % getVertexCoordinates(edgeVertexIdxs(1))
-      u = u / norm2(u)
-
-      print *, 'u:'
-      print *, u
-
-      ! Step 2: retrieve normal vectors for each face in the current notch.
-      faceIdxs = self % notches(i) % faceIdxs
-      normalDifference = faces % getFaceNormal(faceIdxs(2)) - faces % getFaceNormal(faceIdxs(1))
-      normalDifference = normalDifference / norm2(normalDifference)
-
-      print *, 'Normal vectors difference:'
-      print *, normalDifference
-
-      ! Get all the edge indices for this element
-      edgeIdxs = self % getEdgeIdxs()
-      edgeFaceA = edges % getEdgeFaceIdxs(self % notches(i) % faceIdxs(1))
-      edgeFaceB = edges % getEdgeFaceIdxs(self % notches(i) % faceIdxs(2))
-
-      ! Retrieve the coordinates of one of the vertices forming the current edge
-      CoorVertexNotch = vertices % getVertexCoordinates(edgeVertexIdxs(1))
-
-      ! Loop through all the edges in the element to find the intersection points with the cut plane
-      do j = 1, size(edgeIdxs)
-        edgeIdx = edgeIdxs(j)
-        ! To find intersection points, skip edges which are already in the problematic faces
-        if (any(edgeFaceA == edgeIdx)) cycle
-        if (any(edgeFaceB == edgeIdx)) cycle
-
-        ! Retrieve coordinates of the two vertices in the edge
-        verticesEdge = edges % getEdgeVertexIdxs(edgeIdx)
-        coord1 = vertices % getVertexCoordinates(verticesEdge(1))
-        coord2 = vertices % getVertexCoordinates(verticesEdge(2))
-
-        ! Compute denominator and cycle to the next edge if areEqual(denominator, ZERO).
-        denominator = dot_product(normalDifference, coord2 - coord1)
-        if (areEqual(denominator, ZERO)) cycle
-        
-        ! Calculate the instersection point. Start by calculating t
-        const = dot_product(normalDifference, CoorVertexNotch)
-        t = abs((dot_product(normalDifference, coord1) + const) / denominator)
-        print *, 't:', t
-        
-        !If t calculated is not valid, skip the current edge.
-        if (t <= ZERO .or. t >= ONE) then
-          cycle 
-        !If t calculated is valid, append the corresponding intersection point to the list.
-        else
-
-          ! Update nVertices and create a new vertex.
-          nVertices = nVertices + 1
-          call append(newVertexIdxs, nVertices)
-          call newVertices % expandShelf(nVertices)
-          do k = 1, 3
-            newVertexCoords(k) = (ONE - t) * coord1(k) + t * coord2(k)
-
-          end do
-          call newVertices % initVertex(nVertices, newVertexCoords)
-
-          ! Update nEdges and create a new edge connecting one vertex in the notch edge to
-          ! the new vertex.
-          nEdges = nEdges + 1
-          newEdgeLength = INF
-          newEdgeVertexIdxs(2) = nVertices
-          do k = 1, 2
-            ! Compute distance of edge from the current vertex.
-            testLength = norm2(newVertices % getVertexCoordinates(edgeVertexIdxs(k)) &
-                               - newVertices % getVertexCoordinates(nVertices))
-            
-            ! Pick first vertex index which minimises new edge length.
-            if (testLength < newEdgeLength) then
-              newEdgeLength = testLength
-              newEdgeVertexIdxs(1) = edgeVertexIdxs(k)
-
-            end if
-
-          end do
-          call newEdges % expandShelf(nEdges)
-          call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
-
-          ! Split the edge being cut into two, and split the corresponding face containing
-          ! the edge. First replace an old edge in the shelf.
-          edgeFaceIdxs = findCommon(abs(self % faceIdxs), edges % getEdgeFaceIdxs(edgeIdx))
-          call append(faceToSplitIdxs, edgeFaceIdxs, .true.)
-
-          newEdgeVertexIdxs(1) = verticesEdge(1)
-          newEdgeVertexIdxs(2) = nVertices
-          call newEdges % initEdge(edgeIdx, newEdgeVertexIdxs)
-          call edges % addChildIdxToEdge(edgeIdx, edgeIdx)
-
-          ! Now create a new edge.
-          nEdges = nEdges + 1
-          newEdgeVertexIdxs(1) = verticesEdge(2)
-          newEdgeVertexIdxs(2) = nVertices
-          call newEdges % expandShelf(nEdges)
-          call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
-          call edges % addChildIdxToEdge(edgeIdx, nEdges)
-
-          ! Set the index of the cut vertex for the edge being split.
-          call edges % setEdgeCutVertexIdx(edgeIdx, nVertices)
-
-        end if 
-
-      end do
-
-      ! Loop through all the newly created vertices and create edges joining them.
-      do j = 1, size(newVertexIdxs) - 1
-        ! Create a new edge.
-        nEdges = nEdges + 1
-        newEdgeVertexIdxs = newVertexIdxs(j:j + 1)
-        call newEdges % expandShelf(nEdges)
-        call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
-
-      end do
-
-      ! Loop through all faces to be split and split them.
-      do j = 1, size(faceToSplitIdxs)
-        ! Retrieve the indices of the vertices in the current face.
-        faceVertexIdxs = faces % getFaceVertexIdxs(faceToSplitIdxs(j))
-        if (allocated(dotProducts)) deallocate(dotProducts)
-        allocate(dotProducts(size(faceVertexIdxs)))
-        do k = 1, size(faceVertexIdxs)
-          if (any(edgeVertexIdxs == faceVertexIdxs)) then
-            dotProducts(k) = ZERO
-            cycle
-
-          end if
-          dotProducts(k) = dot_product(normalDifference, CoorVertexNotch - vertices % getVertexCoordinates(faceVertexIdxs(k)))
-
-        end do
-        ! Compute minimum indices.
-        minPositiveIdxs = minloc(dotProducts, dotProducts > ZERO)
-        minNegativeIdxs = minloc(dotProducts, dotProducts < ZERO)
-        minPositiveIdx = minPositiveIdxs(1)
-        minNegativeIdx = minNegativeIdxs(1)
-        ! Split the face into two.
-        do k = 1, 2
-          if (allocated(newFaceVertexIdxs)) deallocate(newFaceVertexIdxs)
-          allocate(newFaceVertexIdxs(0))
-          if (k == 1) then
-            do l = 0, size(dotProducts)
-              idx = minPositiveIdx + mod(l, size(dotProducts))
-              if (dotProducts(idx) == ZERO) then
-                call append(newFaceVertexIdxs, faceVertexIdxs(idx))
-
-              elseif (dotProducts(idx) > ZERO) then
-                if (idx == 1) then
-                  previousIdx = size(dotProducts)
-
-                else
-                  previousIdx = idx - 1
-
-                end if
-                if (dotProducts(previousIdx) < ZERO) then
-                  cutVertexIdx = edges % getEdgeCutVertexIdx(vertices % findCommonEdgeIdx(faceVertexIdxs(idx), &
-                                                                                          faceVertexIdxs(previousIdx)))
-                  call append(newFaceVertexIdxs, cutVertexIdx)
-
-                end if
-
-              elseif (dotProducts(idx) < ZERO) then
-                if (idx == 1) then
-                  previousIdx = size(dotProducts)
-
-                else
-                  previousIdx = idx - 1
-
-                end if
-                if (dotProducts(previousIdx) > ZERO) then
-                  cutVertexIdx = edges % getEdgeCutVertexIdx(vertices % findCommonEdgeIdx(faceVertexIdxs(idx), &
-                                                                                          faceVertexIdxs(previousIdx)))
-                  call append(newFaceVertexIdxs, cutVertexIdx)
-
-                end if
-
-              end if
-
-            end do
-
-          else
-            do l = 0, size(dotProducts)
-              idx = minNegativeIdx + mod(l, size(dotProducts))
-              if (dotProducts(idx) == ZERO) then
-                call append(newFaceVertexIdxs, faceVertexIdxs(idx))
-
-              elseif (dotProducts(idx) < ZERO) then
-                if (idx == 1) then
-                  previousIdx = size(dotProducts)
-
-                else
-                  previousIdx = idx - 1
-
-                end if
-                if (dotProducts(previousIdx) > ZERO) then
-                  cutVertexIdx = edges % getEdgeCutVertexIdx(vertices % findCommonEdgeIdx(faceVertexIdxs(idx), &
-                                                                                          faceVertexIdxs(previousIdx)))
-                  call append(newFaceVertexIdxs, cutVertexIdx)
-
-                end if
-
-              elseif (dotProducts(idx) > ZERO) then
-                if (idx == 1) then
-                  previousIdx = size(dotProducts)
-
-                else
-                  previousIdx = idx - 1
-
-                end if
-                if (dotProducts(previousIdx) < ZERO) then
-                  cutVertexIdx = edges % getEdgeCutVertexIdx(vertices % findCommonEdgeIdx(faceVertexIdxs(idx), &
-                                                                                          faceVertexIdxs(previousIdx)))
-                  call append(newFaceVertexIdxs, cutVertexIdx)
-
-                end if
-
-              end if
-
-            end do
-
-          end if
-
-          print *, 'New face vertices:'
-          print *, newFaceVertexIdxs
-          do l = 1, size(newFaceVertexIdxs)
-            print *, 'Vertex index:'
-            print *, newFaceVertexIdxs(l)
-            print *, 'Vertex coordinates:'
-            print *, newVertices % getVertexCoordinates(newFaceVertexIdxs(l))
-
-          end do
-
-        end do
-
-      end do
-
-    end do
-
-  end subroutine splitConcave
-  
   !! Subroutine 'testForInclusion'
   !!
   !! Basic description:

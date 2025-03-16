@@ -32,6 +32,7 @@ module elementShelf_class
     procedure                                   :: buildElementNotches
     procedure                                   :: computeFaceIntersection
     procedure                                   :: computePotentialFaceIdxs
+    procedure                                   :: expandShelf
     procedure                                   :: getElementCentroid
     procedure                                   :: getElementEdgeIdxs
     procedure                                   :: getElementFaceIdxs
@@ -229,6 +230,39 @@ contains
     potentialFaceIdxs = self % shelf(idx) % item % computePotentialFaces(rEnd, faces)
 
   end function computePotentialFaceIdxs
+
+  !! Subroutine 'expandShelf'
+  !!
+  !! Basic description:
+  !!   Expands the shelf by a specified number of additional elements. Copies elements
+  !!   already present. Allocates the shelf if it is not allocated yet.
+  !!
+  !! Arguments:
+  !!   nAdditionalElements [in] -> Number of additional elements to be included in the shelf.
+  !!
+  elemental subroutine expandShelf(self, nAdditionalElements)
+    class(elementShelf), intent(inout)          :: self
+    integer(shortInt), intent(in)               :: nAdditionalElements
+    integer(shortInt)                           :: nElements
+    type(elementBox), dimension(:), allocatable :: shelf
+
+    if (allocated(self % shelf)) then
+      ! If shelf is already allocated, compute the number of elements in the shelf to be expanded
+      ! and copy elements already present.
+      nElements = size(self % shelf)
+      shelf = self % shelf
+      
+      ! Deallocate shelf and reallocate to new size then copy original elements.
+      deallocate(self % shelf)
+      allocate(self % shelf(nElements + nAdditionalElements))
+      self % shelf(1:nElements) = shelf
+
+    else
+      allocate(self % shelf(nAdditionalElements))
+
+    end if
+
+  end subroutine expandShelf
 
   !! Function 'getElementCentroid'
   !!
@@ -448,12 +482,12 @@ contains
   !!
   !!
   subroutine splitConcave(self, idx, edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
-    class(elementShelf), intent(inout)            :: self
-    integer(shortInt), intent(in)                 :: idx
-    type(edgeShelf), intent(inout)                :: edges, newEdges
-    type(faceShelf), intent(inout)                :: faces, newFaces
-    type(vertexShelf), intent(inout)              :: vertices, newVertices
-    type(elementBox), dimension(:), intent(inout) :: convexElements
+    class(elementShelf), intent(inout)                       :: self
+    integer(shortInt), intent(in)                            :: idx
+    type(edgeShelf), intent(inout)                           :: edges, newEdges
+    type(faceShelf), intent(inout)                           :: faces, newFaces
+    type(vertexShelf), intent(inout)                         :: vertices, newVertices
+    type(elementBox), dimension(:), allocatable, intent(out) :: convexElements
 
     call self % shelf(idx) % item % splitConcave(edges, faces, vertices, newEdges, convexElements, newFaces, newVertices)
 
