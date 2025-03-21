@@ -5,7 +5,8 @@ module polyhedron_class
   use face_inter,         only : faceBox
   use faceShelf_class,    only : faceShelf
   use genericProcedures,  only : append, areEqual, computePyramidCentre, computePyramidVolume, &
-                                 computeTetrahedronCentre, computeTetrahedronVolume, findCommon, fatalError, numToChar
+                                 computeTetrahedronCentre, computeTetrahedronVolume, findCommon, &
+                                 findDifferent, fatalError, numToChar
   use numPrecision
   use tetrahedron_class,  only : tetrahedron
   use triangle_class,     only : triangle
@@ -296,7 +297,7 @@ contains
     type(elementBox), dimension(:), allocatable, intent(out) :: convexElements
     integer(shortInt)                             :: i, j, k, l, edgeIdx, nEdges, nElements, nVertices, commonFaceIdx, &
                                                      firstVertexIdx, cutVertexIdx, idx, previousIdx, &
-                                                     minPositiveIdx, minNegativeIdx, nFaces, nInitialVertices
+                                                     minPositiveIdx, minNegativeIdx, nFaces, nInitialVertices, diff
     integer(shortInt), dimension(2)               :: edgeVertexIdxs, faceIdxs, verticesEdge, newEdgeVertexIdxs, &
                                                      edgeFaceIdxs, childEdgeIdxs
     real(defReal), dimension(3)                   :: u, v, normalDifference, CoorVertexNotch, coord1, coord2, &
@@ -306,7 +307,8 @@ contains
     integer(shortInt), dimension(:), allocatable  :: edgeIdxs, edgeFaceA, edgeFaceB, newVertexIdxs, faceToSplitIdxs, &
                                                      faceVertexIdxs, PosNewFaceVertexIdxs, NegNewFaceVertexIdxs, &
                                                      minPositiveIdxs, minNegativeIdxs, newFaceVertexIdxs, vertexEdgeIdxs, &
-                                                     faceEdgeIdxs, newFaceEdgeIdxs, positiveIdxs, negativeIdxs, newElementVertexIdxs
+                                                     faceEdgeIdxs, newFaceEdgeIdxs, positiveIdxs, negativeIdxs, &
+                                                     newElementVertexIdxs, array
     real(defReal), dimension(:), allocatable      :: dotProducts
     character(:), allocatable                     :: type
     type(notch), dimension(:), allocatable        :: notches
@@ -550,7 +552,7 @@ contains
         faceVertexIdxs = faces % getFaceVertexIdxs(faceToSplitIdxs(j))
 
         ! Calculate the dot product between the cut plane normal and a vector
-        ! from the currect vertex to one of vertices in the reflex edge 
+        ! from the currect vertex to one of the vertices in the reflex edge 
         if (allocated(dotProducts)) deallocate(dotProducts)
         allocate(dotProducts(size(faceVertexIdxs)))
         do k = 1, size(faceVertexIdxs)
@@ -582,15 +584,15 @@ contains
           if (dotproducts(k) == ZERO) then
             call append(NegNewFaceVertexIdxs, faceVertexIdxs(k))
             call append(PosNewFaceVertexIdxs, faceVertexIdxs(k))
-            prev = -1 * prev
+            prev = -prev
 
           else
-            if (dotproducts(k)*prev < ZERO) then
+            if (dotproducts(k) * prev < ZERO) then
               cutVertexIdx = edges % getEdgeCutVertexIdx(vertices % findCommonEdgeIdx(faceVertexIdxs(k), &
                              faceVertexIdxs(k-1)))
               call append(NegNewFaceVertexIdxs, cutVertexIdx)
               call append(PosNewFaceVertexIdxs, cutVertexIdx)
-              prev = -1 * prev
+              prev = -prev
 
             end if
 
@@ -643,12 +645,32 @@ contains
 
       ! Create a new face corresponding to the cut plane.
       nFaces = nFaces + 1
-      allocate(newFaceVertexIdxs(nVertices - nInitialVertices + 2))
-      do j = 1, size(newFaceVertexIdxs) - 2
-        newFaceVertexIdxs(j) = nInitialVertices + j
+      allocate(newFaceVertexIdxs(0))
+      call append(newFaceVertexIdxs, edgeVertexIdxs(1))
+
+      allocate(array(nVertices - nInitialVertices))
+      do j = 1, size(array)
+        array(j) = nInitialVertices + j
 
       end do
-      newFaceVertexIdxs(size(newFaceVertexIdxs) - 1:size(newFaceVertexIdxs)) = edgeVertexIdxs
+
+      outerLoop: do j = 1, nVertices - nInitialVertices + 1
+        vertexEdgeIdxs = newVertices % getVertexEdgeIdxs(newFaceVertexIdxs(j))
+        do k = 1, size(vertexEdgeIdxs)
+          verticesEdge = newEdges % getEdgeVertexIdxs(vertexEdgeIdxs(k))
+          diff = findDifferent(verticesEdge, newFaceVertexIdxs(j))
+          if (any(array == diff)) then
+            if (any(newFaceVertexIdxs == diff)) cycle
+            call append(newFaceVertexIdxs, diff)
+            cycle outerLoop
+
+          end if
+
+        end do
+
+      end do outerLoop
+      call append(newFaceVertexIdxs, edgeVertexIdxs(2))
+
       type = 'Polygon'
       if (size(newFaceVertexIdxs) == 3) type = 'Triangle'
       call newFaces % expandShelf(1)
