@@ -6,13 +6,12 @@ module polyhedron_class
   use faceShelf_class,    only : faceShelf
   use genericProcedures,  only : append, areEqual, computePyramidCentre, computePyramidVolume, &
                                  computeTetrahedronCentre, computeTetrahedronVolume, findCommon, &
-                                 findDifferent, fatalError, numToChar, crossProduct
+                                 findDifferent, fatalError, numToChar
   use numPrecision
   use tetrahedron_class,  only : tetrahedron
   use triangle_class,     only : triangle
   use universalVariables, only : SURF_TOL, INF, ZERO
   use vertexShelf_class,  only : vertexShelf
-  use dictionaryType
   
   implicit none
   private
@@ -38,21 +37,6 @@ module polyhedron_class
     ! Runtime procedures.
     procedure                    :: kill
   end type polyhedron
-
-  !! {add descriptions}
-  !! {can go into genericProcedures}
-  type :: indexValuePair
-    integer(shortInt)            :: idx
-    real(defReal)                :: value
-  end type indexValuePair
-
-  !! {add descriptions}
-  !! {can go into genericProcedures}
-  type :: indexValuePairArray
-    type(indexValuePair), allocatable, dimension(:) :: array
-  contains
-    procedure :: sortPairsByValue
-  end type indexValuePairArray
 
 contains
   
@@ -311,31 +295,24 @@ contains
     type(faceShelf), intent(inout)                :: faces, newFaces
     type(vertexShelf), intent(inout)              :: vertices, newVertices
     type(elementBox), dimension(:), allocatable, intent(out) :: convexElements
-    integer(shortInt)                             :: i, j, k, l, m, edgeIdx, nEdges, nElements, nVertices, &
-                                                     firstVertexIdx, cutVertexIdx, idx, previousIdx, commonFaceIdx, &
-                                                     minPositiveIdx, minNegativeIdx, nFaces, nInitialVertices, diff, &
-                                                     nCurrFaceIntersection, currFaceIdx, pairSize, &
-                                                     nCurrFaceIntersectionImplicit
+    integer(shortInt)                             :: i, j, k, l, edgeIdx, nEdges, nElements, nVertices, commonFaceIdx, &
+                                                     firstVertexIdx, cutVertexIdx, idx, previousIdx, &
+                                                     minPositiveIdx, minNegativeIdx, nFaces, nInitialVertices, diff
     integer(shortInt), dimension(2)               :: notchVertexIdxs, faceIdxs, currEdgeVertexIdxs, newEdgeVertexIdxs, &
                                                      edgeFaceIdxs, childEdgeIdxs
     real(defReal), dimension(3)                   :: u, v, normalDifference, notchVertexCoord, coord1, coord2, &
-                                                     newVertexCoords, projectionLine
-    real(defReal)                                 :: t, denominator, newEdgeLength, testLength, dotProduct, &
+                                                     newVertexCoords
+    real(defReal)                                 :: t, denominator, const, newEdgeLength, testLength, dotProduct, &
                                                      currentVertexDotProduct, prev
-    integer(shortInt), dimension(:), allocatable  :: edgeIdxs, newVertexIdxs, &
+    integer(shortInt), dimension(:), allocatable  :: edgeIdxs, notchFace1EdgeIdxs, notchFace2EdgeIdxs, newVertexIdxs, &
                                                      faceVertexIdxs, PosNewFaceVertexIdxs, NegNewFaceVertexIdxs, &
                                                      minPositiveIdxs, minNegativeIdxs, newFaceVertexIdxs, vertexEdgeIdxs, &
                                                      faceEdgeIdxs, newFaceEdgeIdxs, positiveIdxs, negativeIdxs, &
-                                                     newElementVertexIdxs, array, faceToSplitIdxs, candidateFaceIdxs, &
-                                                     currFaceEdgeIdxs, exploredEdgeIdxs, notchFace1EdgeIdxs, &
-                                                     notchFace2EdgeIdxs, edgeIdxWithIntersection
+                                                     newElementVertexIdxs, array, faceToSplitIdxs
     real(defReal), dimension(:), allocatable      :: dotProducts
     character(:), allocatable                     :: type
     type(notch), dimension(:), allocatable        :: notches
-    type(indexValuePairArray)                     :: idxValuePairs
-    logical                                       :: notchVertexFlag0, notchVertexFlag1, test
-    type(dictionaryShortInteger)                  :: dictEdgeIdxToIntersection
-
+    
     ! Initialise nEdges, nElements, nFaces, and nVertices.
     nEdges = 0
     nElements = 0
@@ -347,251 +324,153 @@ contains
     allocate(newVertexIdxs(0))
     allocate(faceToSplitIdxs(0))
 
-    ! {generalised from MAIN}
     ! Loop through all notches.
     notches = self % getNotches()
-    print*, size(notches)
-    do i = 1, size(notches)
-      print*, notches(i) % edgeIdx
-    end do
-    print*, edges%getEdgeVertexIdxs(17)
-    print*, edges%getEdgeVertexIdxs(18)
-
     do i = 1, size(notches)
 
-      !{Initialise the list of explored edge indices
-      if (allocated(exploredEdgeIdxs)) deallocate(exploredEdgeIdxs)
-      allocate(exploredEdgeIdxs(0))
-
-      ! Retrieve indices of two vertices associated with the current notch.
+      !{REMOVE except notchVertexIdxs}{changed the name: edgeVertexIdxs > notchVertexIdxs}
+      ! Step 1: retrieve first direction vector from the edge of the current notch.
       notchVertexIdxs = edges % getEdgeVertexIdxs(notches(i) % edgeIdx)
+      !u = vertices % getVertexCoordinates(notchVertexIdxs(2)) - vertices % getVertexCoordinates(notchVertexIdxs(1))
+      !u = u / norm2(u)
 
-      ! Retrieve normal vectors for each of the two faces associated with the current notch, and find 
-      ! the normal vector of the bisector plane as a difference between the two
+      ! Step 2: retrieve normal vectors for each of the two faces associated with the current notch, and find 
+      !         the normal vector of the bisector as a difference between the two
       faceIdxs = notches(i) % faceIdxs
       normalDifference = faces % getFaceNormal(faceIdxs(2)) - faces % getFaceNormal(faceIdxs(1))
       normalDifference = normalDifference / norm2(normalDifference)
 
-      ! {Get all the edge indices for this element as well as each of the two faces associated with the notch
+      ! Get all the edge indices for this element {and for each of the two faces associated with the notch}
+      ! {changed name: edgeFaceA > notchFace1EdgeIdxs, B > 2}
       edgeIdxs = self % getEdgeIdxs()
       notchFace1EdgeIdxs = faces % getFaceEdgeIdxs(notches(i) % faceIdxs(1))
       notchFace2EdgeIdxs = faces % getFaceEdgeIdxs(notches(i) % faceIdxs(2))
 
-      ! Retrieve the coordinates of (first) one of the two vertices forming the notch
+      ! Retrieve the coordinates of one of the vertices forming the notch
+      ! {changed name: CoorVertexNotch > notchVertexCoord}
       notchVertexCoord = vertices % getVertexCoordinates(notchVertexIdxs(1))
 
-      ! {Find  indices  of candidate face whose edges might intersect with the cut plane
-      candidateFaceIdxs = self % getFaceIdxs()
+      ! Loop through all the edges in the element to find the intersection points with the cut plane
+      ! {verticesEdge > currEdgeVertexIdxs}
+      do j = 1, size(edgeIdxs)
+        edgeIdx = edgeIdxs(j)
+        currEdgeVertexIdxs = edges % getEdgeVertexIdxs(edgeIdx)
 
-      ! {Flags to help finding which of the two notch vertices is relevant
-      notchVertexFlag0 = .false.  ! if any of the two notch vertices has been used?
-      notchVertexFlag1 = .false.  ! if notchVertexIdxs(1) has been used?
+        ! To find intersection points, skip edges which are already in the problematic faces
+        if (any(notchFace1EdgeIdxs == edgeIdx) .or. any(notchFace2EdgeIdxs == edgeIdx)) then
+        ! {why needed?}
+          do k = 1, nEdges
+            if (size(findCommon(newEdges % getEdgeVertexIdxs(k), currEdgeVertexIdxs)) == 2) cycle
 
-      ! {Loop through all candidate faces
-      do j = 1, size(candidateFaceIdxs)
+          end do
 
-        ! {Initialise the list of edge indices with intersection vertices in it} {new} {new2}
-        if (allocated(edgeIdxWithIntersection)) deallocate(edgeIdxWithIntersection)
-        allocate(edgeIdxWithIntersection(0))
+          ! Copy current edge in the new edgeShelf.
+          nEdges = nEdges + 1
+          if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
+          call newEdges % initEdge(nEdges, currEdgeVertexIdxs)
+          call edges % addChildIdxToEdge(edgeIdx, nEdges)
 
-        !{
-        currFaceIdx = candidateFaceIdxs(j)
+          ! Update connectivity information for the vertices in the new edge.
+          do k = 1, 2
+            call newVertices % addEdgeIdxToVertex(currEdgeVertexIdxs(k), nEdges)
 
-        ! {Initialise the list of edges and the number of intersection points for the current face
-        currFaceEdgeIdxs = faces % getFaceEdgeIdxs(currFaceIdx)
-        nCurrFaceIntersection = 0
-        nCurrFaceIntersectionImplicit = 0
+          end do
 
-        ! {Loop through all edges in the current face
-        do k = 1, size(currFaceEdgeIdxs)
-
-          ! {
-          edgeIdx = currFaceEdgeIdxs(k) !{change it to currEdgeIdx
-
-          ! {if explored already, cycle to the next edge. Otherwise, append the edge to the explored edge list and continue
-          if (any(exploredEdgeIdxs == edgeIdx)) then
-            ! {Test if this explored edge contains an intersection vertex. If yes, keep track of the index of this edge }
-            ! {for this current face to create edge later} {new} 
-            if (dictEdgeIdxToIntersection % hasKey(edgeIdx)) then
-              call append(edgeIdxWithIntersection, edgeIdx)
-              nCurrFaceIntersection = nCurrFaceIntersection + 1
-              nCurrFaceIntersectionImplicit = nCurrFaceIntersectionImplicit + 1
-            end if
-            cycle
-          end if
-          call append(exploredEdgeIdxs, edgeIdx)
-
-          ! {copied from 1}
-          currEdgeVertexIdxs = edges % getEdgeVertexIdxs(edgeIdx)
-
-          ! To find intersection points, skip edges which are already in the problematic faces {from 2}
-          if (any(notchFace1EdgeIdxs == edgeIdx) .or. any(notchFace2EdgeIdxs == edgeIdx)) then
-          ! {why needed?}
-            ! Copy current edge in the new edgeShelf.
-            nEdges = nEdges + 1
-            if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
-            call newEdges % initEdge(nEdges, currEdgeVertexIdxs)
-            call edges % addChildIdxToEdge(edgeIdx, nEdges)
-
-            ! Update connectivity information for the vertices in the new edge.
-            do l = 1, 2
-              call newVertices % addEdgeIdxToVertex(currEdgeVertexIdxs(l), nEdges)
-
-            end do
-
-            cycle
-
-          end if
-          ! {to 2}
-
-
-          ! {calculate intersection point from 3}
-          ! Retrieve coordinates of the two vertices in the edge
-          coord1 = vertices % getVertexCoordinates(currEdgeVertexIdxs(1))
-          coord2 = vertices % getVertexCoordinates(currEdgeVertexIdxs(2))
-
-          ! Compute denominator and cycle to the next edge if areEqual(denominator, ZERO). {from 4}
-          ! {(If areEqual(denominator, ZERO), current edge and the cut plane are in parallel.)}
-          ! {(Hence, they never intersect)}
-          denominator = dot_product(normalDifference, coord2 - coord1)
-          if (areEqual(denominator, ZERO)) then
-          ! {again why needed?}
-            do l = 1, nEdges
-              if (size(findCommon(newEdges % getEdgeVertexIdxs(l), currEdgeVertexIdxs)) == 2) cycle
-
-            end do
-
-            ! Copy current edge in the new edgeShelf.
-            nEdges = nEdges + 1
-            if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
-            call newEdges % initEdge(nEdges, currEdgeVertexIdxs)
-            call edges % addChildIdxToEdge(edgeIdx, nEdges)
-
-            ! Update connectivity information for the vertices in the new edge.
-            do l = 1, 2
-              call newVertices % addEdgeIdxToVertex(currEdgeVertexIdxs(l), nEdges)
-
-            end do
-
-            cycle
-
-          end if
-          ! {to 4}
-          
-        
-          ! Calculate the instersection point. Start by calculating t
-          ! {t = abs((dot_product(normalDifference, coord1) + const) / denominator)} changed to below
-          t = (-dot_product(normalDifference, coord1 - notchVertexCoord)) / denominator
-          
-          ! If t calculated is not valid, skip the current edge.
-          ! {t = 0 or 1 sits on the edge but not valid as a intersection point 
-          ! {because intersection point doesnt sit at the periphery of the edge
-          if (t <= ZERO .or. t >= ONE) then
-            ! Create a new edge only if not already present in the new edgeShelf. Retrieve all
-            ! edges linked to the first vertex of the current edge.
-            vertexEdgeIdxs = newVertices % getVertexEdgeIdxs(currEdgeVertexIdxs(1))
-            do l = 1, size(vertexEdgeIdxs)
-              if (size(findCommon(newEdges % getEdgeVertexIdxs(vertexEdgeIdxs(l)), currEdgeVertexIdxs)) == 2) cycle
-              nEdges = nEdges + 1
-              ! {again, not sure why we need this}
-              ! {are they not already in newEdges?}
-              ! {or is it to make sure they are ordered in the correct way?}
-              if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
-              call newEdges % initEdge(nEdges, currEdgeVertexIdxs)
-              ! {what is it doing?}
-              call edges % addChildIdxToEdge(edgeIdx, nEdges)
-
-              ! Update connectivity information for the vertices in the new edge.
-              do m = 1, 2
-                call newVertices % addEdgeIdxToVertex(currEdgeVertexIdxs(m), nEdges)
-
-              end do
-
-            end do
-
-          !If t calculated is valid, append the corresponding intersection point to the list.
-          else
-
-            ! Update nVertices and create a new vertex.
-            nVertices = nVertices + 1
-            call append(newVertexIdxs, nVertices)
-            call newVertices % expandShelf(1)
-            newVertexCoords = (ONE - t) * coord1 + t * coord2
-            call newVertices % initVertex(nVertices, newVertexCoords)
-            ! {copied to 1}
-
-            ! {Add to the dictionary with edge index as a key and intersection vertex as a value} {new}
-            call dictEdgeIdxToIntersection % addEntry(edgeIdx, nVertices)
-            print*, dictEdgeIdxToIntersection % hasKey(8), currFaceIdx, edgeIdx
-
-            ! {copied from 5}
-            ! Split the original edge into two.
-            do l = 1, 2
-              nEdges = nEdges + 1
-              newEdgeVertexIdxs(1) = currEdgeVertexIdxs(l)
-              newEdgeVertexIdxs(2) = nVertices
-              if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
-              call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
-              call edges % addChildIdxToEdge(edgeIdx, nEdges)
-
-              ! Add connectivity information for new vertices.
-              do m = 1, 2
-                call newVertices % addEdgeIdxToVertex(newEdgeVertexIdxs(m), nEdges)
-
-              end do
-
-            end do
-
-            ! Set the index of the cut vertex for the edge being split.
-            call edges % setEdgeCutVertexIdx(edgeIdx, nVertices)
-
-            ! {increase # of interesection points for the current face}
-            nCurrFaceIntersection = nCurrFaceIntersection + 1
-          end if 
-
-        end do
-        ! {copied to 5}
-
-
-        ! {creating edges from 6}
-        if (nCurrFaceIntersection == 0) then   ! {no intersection points}
           cycle
-          
-        else if (nCurrFaceIntersection == 1) then ! {edge to be created from one notch vertex and interesection}
+
+        end if
+
+        ! Retrieve coordinates of the two vertices in the edge
+        coord1 = vertices % getVertexCoordinates(currEdgeVertexIdxs(1))
+        coord2 = vertices % getVertexCoordinates(currEdgeVertexIdxs(2))
+
+        ! Compute denominator and cycle to the next edge if areEqual(denominator, ZERO).
+        ! (If areEqual(denominator, ZERO), current edge and the cut plane are in parallel.)
+        ! (Hence, they never intersect)
+        denominator = dot_product(normalDifference, coord2 - coord1)
+        if (areEqual(denominator, ZERO)) then
+        ! {again why needed?}
+          do k = 1, nEdges
+            if (size(findCommon(newEdges % getEdgeVertexIdxs(k), currEdgeVertexIdxs)) == 2) cycle
+
+          end do
+
+          ! Copy current edge in the new edgeShelf.
           nEdges = nEdges + 1
+          if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
+          call newEdges % initEdge(nEdges, currEdgeVertexIdxs)
+          call edges % addChildIdxToEdge(edgeIdx, nEdges)
 
-          ! {if the intersection vertex is from one of the previously explored edges, retrive vertex index from the dictionary}{new}
-          if (nCurrFaceIntersectionImplicit == 1) then
-            newEdgeVertexIdxs(2) = dictEdgeIdxToIntersection % getValue(edgeIdxWithIntersection(1))
-          else
-            newEdgeVertexIdxs(2) = nVertices
-          end if
+          ! Update connectivity information for the vertices in the new edge.
+          do k = 1, 2
+            call newVertices % addEdgeIdxToVertex(currEdgeVertexIdxs(k), nEdges)
 
-          ! {same from 8}
-          if (.not. notchVertexFlag0) then
-            notchVertexFlag0 = .true.
+          end do
 
-            if (dot_product(faces % getFaceNormal(currFaceIdx), notchVertexCoord - & !{define new variables for normal and centroid}
-            faces % getFaceCentroid(currFaceIdx)) == ZERO) then                       !{or make this as a subroutine}
-              notchVertexFlag1 = .true.
-              newEdgeVertexIdxs(1) = notchVertexIdxs(1)
-            else
-              newEdgeVertexIdxs(1) = notchVertexIdxs(2)
+          cycle
+
+        end if
+        
+        ! Calculate the instersection point. Start by calculating t
+        const = dot_product(normalDifference, notchVertexCoord)
+        ! {t = abs((dot_product(normalDifference, coord1) + const) / denominator)} changed to below
+        t = (-dot_product(normalDifference, coord1) + const) / denominator
+        
+        ! If t calculated is not valid, skip the current edge.
+        ! {if (t <= ZERO .or. t >= ONE) then} changed to below
+        if (t < ZERO .or. t > ONE) then
+          ! Create a new edge only if not already present in the new edgeShelf. Retrieve all
+          ! edges linked to the first vertex of the current edge.
+          vertexEdgeIdxs = newVertices % getVertexEdgeIdxs(currEdgeVertexIdxs(1))
+          do k = 1, size(vertexEdgeIdxs)
+            if (size(findCommon(newEdges % getEdgeVertexIdxs(vertexEdgeIdxs(k)), currEdgeVertexIdxs)) == 2) cycle
+            nEdges = nEdges + 1
+            ! {again, not sure why we need this}
+            ! {are they not already in newEdges?}
+            ! {or is it to make sure they are ordered in the correct way?}
+            if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
+            call newEdges % initEdge(nEdges, currEdgeVertexIdxs)
+            ! {what is it doing?}
+            call edges % addChildIdxToEdge(edgeIdx, nEdges)
+
+            ! Update connectivity information for the vertices in the new edge.
+            do l = 1, 2
+              call newVertices % addEdgeIdxToVertex(currEdgeVertexIdxs(l), nEdges)
+
+            end do
+
+          end do
+
+        !If t calculated is valid, append the corresponding intersection point to the list.
+        else
+
+          ! Update nVertices and create a new vertex.
+          nVertices = nVertices + 1
+          call append(newVertexIdxs, nVertices)
+          call newVertices % expandShelf(1)
+          newVertexCoords = (ONE - t) * coord1 + t * coord2
+          call newVertices % initVertex(nVertices, newVertexCoords)
+
+          ! Update nEdges and create a new edge connecting one vertex in the notch edge to
+          ! the new vertex created as a intersection point.
+          ! {this might require generalisation. There can be more than one edges whose vertices are neither of notch vertices}
+          ! {from here 1}
+          nEdges = nEdges + 1
+          newEdgeLength = INF
+          newEdgeVertexIdxs(2) = nVertices
+          do k = 1, 2
+            ! Compute distance of edge from the current vertex.
+            testLength = norm2(newVertices % getVertexCoordinates(notchVertexIdxs(k)) &
+                               - newVertices % getVertexCoordinates(nVertices))
+            
+            ! Pick first vertex index which minimises new edge length.
+            if (testLength < newEdgeLength) then
+              newEdgeLength = testLength
+              newEdgeVertexIdxs(1) = notchVertexIdxs(k)
+
             end if
 
-          else
-
-            if (notchVertexFlag1) then
-              newEdgeVertexIdxs(1) = notchVertexIdxs(2)
-            else
-              newEdgeVertexIdxs(1) = notchVertexIdxs(1)
-            end if 
-            
-          end if 
-          ! {same to 8}
-          ! {to 6}
-
-          ! {copied from 7}
+          end do
           if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
           call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
 
@@ -599,127 +478,54 @@ contains
             call newVertices % addEdgeIdxToVertex(newEdgeVertexIdxs(k), nEdges)
 
           end do
-          ! {copied to 7}
 
+          ! Find the index of the face being split and append it to the list of faces to
+          ! split if it is not already present.
+          edgeFaceIdxs = findCommon(abs(self % getFaceIdxs()), edges % getEdgeFaceIdxs(edgeIdx))
+          call append(faceToSplitIdxs, edgeFaceIdxs, .true.)
 
-        else if (nCurrFaceIntersection == 2) then
-          nEdges = nEdges + 1
-
-          ! {new} {can make it more efficient by taking dictionary and the REST from nVertices..}
-          ! {same idea for faces with # of intersection > 2}
-          if (nCurrFaceIntersectionImplicit == 0) then
-            newEdgeVertexIdxs(1) = nVertices - 1
-            newEdgeVertexIdxs(2) = nVertices
-          else if (nCurrFaceIntersectionImplicit == 1) then
-            newEdgeVertexIdxs(1) = dictEdgeIdxToIntersection % getValue(edgeIdxWithIntersection(1))
-            newEdgeVertexIdxs(2) = nVertices
-          else
-            newEdgeVertexIdxs(1) = dictEdgeIdxToIntersection % getValue(edgeIdxWithIntersection(1))
-            newEdgeVertexIdxs(2) = dictEdgeIdxToIntersection % getValue(edgeIdxWithIntersection(2))
-          end if
-
-          ! {copied from 7}
-          if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
-          call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
-
+          ! Split the original edge into two.
           do k = 1, 2
-            call newVertices % addEdgeIdxToVertex(newEdgeVertexIdxs(k), nEdges)
-
-          end do
-          ! {copied to 7}
-
-
-        else
-          if (allocated(idxValuePairs % array)) deallocate(idxValuePairs % array)
-          projectionLine = crossProduct(normalDifference, faces % getFaceNormal(currFaceIdx))
-
-          if (MOD(nCurrFaceIntersection,2) == 1) then
-            pairSize = nCurrFaceIntersection + 1
-            allocate(idxValuePairs % array (pairSize))
-            ! {same from 8}
-            if (.not. notchVertexFlag0) then
-              notchVertexFlag0 = .true.
-
-              if (dot_product(faces % getFaceNormal(currFaceIdx), notchVertexCoord - & !{define new variables for normal and centroid}
-              faces % getFaceCentroid(currFaceIdx)) == ZERO) then                       !{or make this as a subroutine}
-                notchVertexFlag1 = .true.
-                newEdgeVertexIdxs(pairSize) = notchVertexIdxs(1)
-              else
-                newEdgeVertexIdxs(pairSize) = notchVertexIdxs(2)
-              end if
-
-            else
-
-              if (notchVertexFlag1) then
-                newEdgeVertexIdxs(pairSize) = notchVertexIdxs(2)
-              else
-                newEdgeVertexIdxs(pairSize) = notchVertexIdxs(1)
-              end if 
-              
-            end if 
-            ! {same to 8}
-
-          else 
-
-            pairSize = nCurrFaceIntersection
-            allocate(idxValuePairs % array (pairSize))
-
-          end if 
-
-
-          ! {check} {index of newVertices, Vertices?}
-          ! {new} {need to account for nCurrFaceIntersectionImplicit}
-          do k = 1, nCurrFaceIntersection
-            idxValuePairs % array(k) % idx = nVertices + 1 - k
-          end do
-
-
-          do k = 1, pairSize - 1
-            idxValuePairs % array(k) % value = dot_product(newVertices % getVertexCoordinates( &
-                        idxValuePairs % array(k) %idx) - newVertices % getVertexCoordinates( &
-                        idxValuePairs % array(pairSize) %idx), projectionLine)
-          end do
-          idxValuePairs % array(pairSize) % value = 0
-
-          call idxValuePairs % sortPairsByValue()
-
-          do k = 1, pairSize/2
             nEdges = nEdges + 1
-            newEdgeVertexIdxs(1) = idxValuePairs % array(2*k) % idx
-            newEdgeVertexIdxs(2) = idxValuePairs % array(2*k - 1) % idx
-            ! {copied from 7}
+            newEdgeVertexIdxs(1) = currEdgeVertexIdxs(k)
+            newEdgeVertexIdxs(2) = nVertices
             if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
             call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
+            call edges % addChildIdxToEdge(edgeIdx, nEdges)
 
+            ! Add connectivity information for new vertices.
             do l = 1, 2
               call newVertices % addEdgeIdxToVertex(newEdgeVertexIdxs(l), nEdges)
 
             end do
-            ! {copied to 7}
+
           end do
+
+          ! Set the index of the cut vertex for the edge being split.
+          call edges % setEdgeCutVertexIdx(edgeIdx, nVertices)
 
         end if 
 
-        call append(faceToSplitIdxs, currFaceIdx, .true.)
-
       end do
 
-      ! {generalised to MAIN}
+      ! Loop through all the newly created vertices and create edges joining them.
+      do j = 1, size(newVertexIdxs) - 1
+        ! Create a new edge.
+        nEdges = nEdges + 1
+        newEdgeVertexIdxs = newVertexIdxs(j:j + 1)
+        if (nEdges > newEdges % getSize()) call newEdges % expandShelf(1)
+        call newEdges % initEdge(nEdges, newEdgeVertexIdxs)
 
-      print*, nVertices
-      do j = 1, nVertices
-        print*, newVertices % getVertexCoordinates(j)
-        print*, newVertices % getVertexEdgeIdxs(j)
+        do k = 1, 2
+          call newVertices % addEdgeIdxToVertex(newEdgeVertexIdxs(k), nEdges)
+
+        end do
+
       end do
-
-      print*, nEdges
-      do j = 1, nEdges
-        print*, newEdges % getEdgeVertexIdxs(j)
-      end do
-
+      ! {to here 1}
 
       ! {generalise from here 2}
-      ! {"faces" contain faces of other elements. need to do this for "newfaces" to make it more efficient for a single concave element?}
+      ! {faces contain faces of other elements. need to do this for newfaces if we are not doing for a single concave element?}
       ! Loop through all initial faces and copy those not cut by the plane to the newFaces shelf.
       do j = 1, faces % getSize()
         if (any(faceToSplitIdxs == j)) cycle
@@ -728,7 +534,6 @@ contains
         faceVertexIdxs = faces % getFaceVertexIdxs(j)
         faceEdgeIdxs = faces % getFaceEdgeIdxs(j)
         if (allocated(newFaceEdgeIdxs)) deallocate(newFaceEdgeIdxs)
-        allocate(newFaceEdgeIdxs(0))
         do k = 1, size(faceEdgeIdxs)
           call append(newFaceEdgeIdxs, edges % getEdgeChildrenIdxs(faceEdgeIdxs(k)))
 
@@ -906,12 +711,6 @@ contains
       end do
       ! {generalisation complete to 4}
 
-      do j = 1, nFaces
-        print*, j
-        !print*, newFaces % getFaceEdgeIdxs(j)
-        print*, newFaces % getFaceVertexIdxs(j)
-      end do
-
       ! {generalisation complete from 5}
       ! Split the element into two. Calculate the dot product between the cut face normal and a vector
       ! from the current face centroid to the centroid of the cut face.
@@ -931,7 +730,6 @@ contains
       allocate(convexElements(2))
       nElements = nElements + 1
       if (allocated(newElementVertexIdxs)) deallocate(newElementVertexIdxs)
-      allocate(newElementVertexIdxs(0))
       do j = 1, size(positiveIdxs)
         newFaceVertexIdxs = newFaces % getFaceVertexIdxs(abs(positiveIdxs(j)))
         do k = 1, size(newFaceVertexIdxs)
@@ -964,8 +762,7 @@ contains
 
       ! Repeat to create another new element, for the negative indices.
       nElements = nElements + 1
-      deallocate(newElementVertexIdxs)
-      allocate(newElementVertexIdxs(0))
+      if (allocated(newElementVertexIdxs)) deallocate(newElementVertexIdxs)
       do j = 1, size(negativeIdxs)
         newFaceVertexIdxs = newFaces % getFaceVertexIdxs(abs(negativeIdxs(j)))
         do k = 1, size(newFaceVertexIdxs)
@@ -999,24 +796,5 @@ contains
     end do
 
   end subroutine splitConcave
-
-  subroutine sortPairsByValue(self)
-    class(indexValuePairArray), intent(inout)   :: self
-    integer                                     :: i, j, n
-    type(indexValuePair)                        :: temp
-
-    n = size(self%array)
-
-    do i = 2, n
-        temp = self%array(i)
-        j = i - 1
-        do while (j >= 1 .and. self%array(j)%value > temp%value)
-            self%array(j+1) = self%array(j)
-            j = j - 1
-        end do
-        self%array(j+1) = temp
-    end do
-  end subroutine sortPairsByValue
-
 
 end module polyhedron_class

@@ -276,6 +276,21 @@ contains
 
     end do
 
+    ! allocate(self % notches(2))
+    ! self % notches(1) % edgeIdx = 3
+    ! allocate(commonFaceIdxs(0))
+    ! call append(commonFaceIdxs, 1)
+    ! call append(commonFaceIdxs, 2)
+    ! self % notches(1) % faceIdxs = commonFaceIdxs
+
+    ! self % notches(2) % edgeIdx = 9
+    ! deallocate(commonFaceIdxs)
+    ! allocate(commonFaceIdxs(0))
+    ! call append(commonFaceIdxs, 3)
+    ! call append(commonFaceIdxs, 4)
+    ! self % notches(2) % faceIdxs = commonFaceIdxs
+
+
   end subroutine buildNotches
 
   !! Function 'isConvex'
@@ -320,6 +335,7 @@ contains
       do j = 1, size(faceVertexIdxs)
         ! Retrieve the coordinates of the current face vertex and loop through all the vertices in the element.
         faceVertexCoords = vertices % getVertexCoordinates(faceVertexIdxs(j))
+
         do k = 1, size(vertexIdxs)
           ! Cycle to the next vertex if the current vertex index corresponds to the index of a vertex in the current face.
           vertexIdx = vertexIdxs(k)

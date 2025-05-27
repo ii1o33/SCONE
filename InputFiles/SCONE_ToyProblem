@@ -1,16 +1,16 @@
 type eigenPhysicsPackage;
 
 pop      20000;
-active   100;
-inactive 100;
+active   15;
+inactive 15;
 XSdata ce;
 dataType ce;
-seed -1176561103;
+seed 1;
 
 collisionOperator { neutronCE {type neutronCEstd;}
                     neutronMG {type neutronMGstd;} }
 
-transportOperator { type transportOperatorDT; }
+transportOperator { type transportOperatorST; }
 
 inactiveTally {}
 
@@ -59,16 +59,14 @@ nuclearData {
       			composition {
       				1001.03    6.700E-002;
       				8016.03    3.350E-002;
-      				5010.03    5.560E-006;
-      				5011.03    2.224E-005; 
 			}
       		}
 
     		fuel {
       			temp 87476;
        			composition {
-      				92235.03  3.00E-002;
-      				92238.03  0.97;
+      				92235.03  9.670E-003;
+      				92238.03  3.868E-002;
 			}
       		}
 
