@@ -5,7 +5,7 @@ module element_inter
   use faceShelf_class,     only : faceShelf
   use genericProcedures,   only : append, areEqual, computePyramidCentre, computePyramidVolume, &
                                   computeTetrahedronCentre, computeTetrahedronVolume, findCommon, &
-                                  fatalError, numToChar
+                                  fatalError, numToChar, crossProduct
   use numPrecision
   use universalVariables,  only : SURF_TOL, INF, ZERO
   use vertexShelf_class,   only : vertexShelf
@@ -225,11 +225,12 @@ contains
     type(faceShelf), intent(in)                    :: faces
     type(vertexShelf), intent(in)                  :: vertices
     integer(shortInt)                              :: i, j, k, faceIdx, absFaceIdx, vertexIdx, nNotches
-    integer(shortInt), dimension(:), allocatable   :: faceVertexIdxs, edgeIdxs, edgeFaceIdxs, currentElementFaceIdxs, &
-                                                      commonFaceIdxs
-    real(defReal), dimension(3)                    :: normal, faceVertexCoords
+    integer(shortInt), dimension(:), allocatable   :: faceVertexIdxs, edgeIdxs, edgeFaceIdxs, currEdgeFaceIdxs, &
+                                                      commonFaceIdxs, currElementFaceIdxs
+    real(defReal), dimension(3)                    :: normal, faceVertexCoords, edgeVector, RHSvector, testVector, &
+                                                      edgeCentre, inwardVector, centroid
     type(notch), dimension(:), allocatable         :: tempNotches
-    integer(shortInt), dimension(2)                :: edgeVertexIdxs
+    integer(shortInt), dimension(2)                :: currEdgeVertexIdxs
     
     ! Initialise nNotches = 0
     nNotches = 0
@@ -237,26 +238,80 @@ contains
     ! Get all the edge indices for this element
     edgeIdxs = self % getEdgeIdxs()
 
+    ! {new}
+    currElementFaceIdxs = self % getFaceIdxs()
+
     ! Loop through all the edges in the current element
     do i = 1, size(edgeIdxs)
         ! Retrieve all the faces associated with the edge
         edgeFaceIdxs = edges % getEdgeFaceIdxs(edgeIdxs(i))
         ! Renewing for the current edge (loop variant)
-        if (allocated(currentElementFaceIdxs)) deallocate(currentElementFaceIdxs)
+        if (allocated(currEdgeFaceIdxs)) deallocate(currEdgeFaceIdxs)
         ! Loop through all the faces associated with the edge
         do j = 1, size(edgeFaceIdxs)
-            ! If the current face is not part of the element, cycle
-            if (.not. any(abs(self % getFaceIdxs()) == edgeFaceIdxs(j))) cycle
+            ! If the current face is not part of the element, cycle ! {new}
+            if (.not. any(abs(currElementFaceIdxs) == edgeFaceIdxs(j))) cycle
             ! O.W keep the face
-            call append(currentElementFaceIdxs, edgeFaceIdxs(j))
+            call append(currEdgeFaceIdxs, edgeFaceIdxs(j))
 
         end do
 
         ! Find the notch whose two adjacent faces are defined as the problematic faces that fails convexity tests.
         ! This can be determined by testing if the size of the intersection of the two sets (current face and problematic face) is 2
         ! If notch, store the edgeIdx and faceIdxs
-        commonFaceIdxs = findCommon(currentElementFaceIdxs, self % concaveFaceIdxs)
+        commonFaceIdxs = findCommon(currEdgeFaceIdxs, self % concaveFaceIdxs)
         if (size(commonFaceIdxs) == 2) then
+          
+
+            do j = 1, size(currElementFaceIdxs)
+              if (any(self % concaveFaceIdxs == abs(currElementFaceIdxs(j)) )) cycle
+              do k = 1, size()
+
+            end do
+
+
+
+
+
+
+            currEdgeVertexIdxs = edges % getEdgeVertexIdxs(edgeIdxs(i))
+            edgeVector = vertices % getVertexCoordinates(currEdgeVertexIdxs(2)) &
+                          - vertices % getVertexCoordinates(currEdgeVertexIdxs(1))
+            edgeCentre = vertices % getVertexCoordinates(currEdgeVertexIdxs(1)) + edgeVector*0.5
+            inwardVector = centroid - edgeCentre
+            RHSvector = crossProduct(edgeVector, inwardVector)
+            testVector = faces % getFaceCentroid(commonFaceIdxs(1)) - edgeCentre
+            if (dot_product(RHSvector, testVector) > ZERO) then
+              if (dot_product(crossProduct(faces % getFaceNormal(commonFaceIdxs(2)), &
+                  faces % getFaceNormal(commonFaceIdxs(1))), edgeVector) < ZERO) cycle
+            else
+              if (dot_product(crossProduct(faces % getFaceNormal(commonFaceIdxs(1)), &
+                  faces % getFaceNormal(commonFaceIdxs(2))), edgeVector) < ZERO) cycle
+            end if
+
+
+
+            if (edgeIdxs(i) == 6) then
+              print*, currEdgeVertexIdxs, "currEdgeVertexIdxs"
+              print*, edgeVector, "edgeVector"
+              print*, edgeCentre, "edgeCentre"
+              print*, self % centroid, "element centroid"
+              print*, inwardVector, "inwardVector"
+              print*, RHSvector, "RHSvector"
+              print*, testVector, "testVector"
+              print*, dot_product(RHSvector, testVector)
+              print*, dot_product(crossProduct(faces % getFaceNormal(commonFaceIdxs(2)), &
+                  faces % getFaceNormal(commonFaceIdxs(1))), edgeVector)
+              print*, dot_product(crossProduct(faces % getFaceNormal(commonFaceIdxs(1)), &
+                  faces % getFaceNormal(commonFaceIdxs(2))), edgeVector)
+            end if
+
+
+
+
+
+
+
             nNotches = nNotches + 1
             if (nNotches == 1) then
               allocate(self % notches(nNotches))
