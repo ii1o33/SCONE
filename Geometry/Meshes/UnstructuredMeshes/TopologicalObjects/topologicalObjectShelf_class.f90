@@ -42,9 +42,6 @@ module topologicalObjectShelf_class
     generic            :: getObjectBox => getObjectBox_shortInt, getObjectBox_shortIntArray
     procedure, private :: getObjectBox_shortInt
     procedure, private :: getObjectBox_shortIntArray
-    generic            :: getVertexBox => getVertexBox_shortInt, getVertexBox_shortIntArray
-    procedure, private :: getVertexBox_shortInt
-    procedure, private :: getVertexBox_shortIntArray
     generic            :: getObjectBoundingBoxBounds => getObjectBoundingBoxBounds_shortInt, &
                                                         getObjectBoundingBoxBounds_shortIntArray
     procedure, private :: getObjectBoundingBoxBounds_shortInt
@@ -56,6 +53,9 @@ module topologicalObjectShelf_class
     procedure          :: getObjectsNumber
     procedure          :: getShelf
     procedure          :: getSize
+    generic            :: getVertexBox => getVertexBox_shortInt, getVertexBox_shortIntArray
+    procedure, private :: getVertexBox_shortInt
+    procedure, private :: getVertexBox_shortIntArray
     procedure          :: init
     generic            :: initObject => initMultipleObjects, initSingleObject
     procedure, private :: initMultipleObjects

@@ -6,7 +6,7 @@ module accelerationStructureFactory_func
   use noAcceleration_class,          only : noAcceleration
   use numPrecision
   use octreeAcceleration_class,      only : octreeAcceleration
-  use patchSearchAcceleration_class, only : patchSearchAcceleration
+  use patchSingleAcceleration_class, only : patchSingleAcceleration
   use topologicalObjectShelf_class,  only : topologicalObjectShelf
 
   implicit none
@@ -52,7 +52,7 @@ contains
           allocate(octreeAcceleration :: ptr)
 
       case('patchSearch')
-          allocate(patchSearchAcceleration :: ptr)
+          allocate(patchSingleAcceleration :: ptr)
 
       case default
           print '(A)', 'AVAILABLE ACCELERATION STRUCTURES: '
